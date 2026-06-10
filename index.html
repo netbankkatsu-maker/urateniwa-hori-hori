@@ -374,12 +374,9 @@ function generateMap(seed){
     }
   }
 
-  // Surface structures (left side surface)
+  // Surface structures
   buildSurface(map,set,get);
-
-  // Elevator shaft (center)
-  const elevX=Math.floor(MW/2);
-  for(let y=BIOMES[0].y1;y<MH-3;y++){set(elevX,y,T.ELEV);}
+  // ※ エレベーターは削除済み
 
   return map;
 }
@@ -462,43 +459,56 @@ function buildRuin(map,rx,ry,rng,set,get){
 }
 
 function buildSurface(map,set,get){
-  const sy=BIOMES[0].y1-1; // grass level
-  // Clear surface area
-  for(let y=0;y<sy;y++)for(let x=2;x<MW-2;x++)map[y][x]=T.AIR;
-  for(let x=2;x<MW-2;x++)map[sy][x]=T.GRASS;
+  const GRASS_Y = BIOMES[0].y1 - 1; // = 9 (草レベル)
 
-  // Ground floor
-  for(let x=2;x<MW-2;x++){
-    map[sy+1][x]=T.DIRT; map[sy+2][x]=T.DIRT;
+  // ===== 地表クリア (空気で埋め直し) =====
+  for(let y=0;y<GRASS_Y;y++) for(let x=0;x<MW;x++) map[y][x]=T.AIR;
+  // 草レイヤー
+  for(let x=0;x<MW;x++) map[GRASS_Y][x]=T.GRASS;
+  // 地下1-2層は土
+  for(let x=0;x<MW;x++){
+    map[GRASS_Y+1][x]=T.DIRT;
+    map[GRASS_Y+2][x]=T.DIRT;
   }
 
-  // Buildings (all at grass level)
-  // House (x=4)
-  buildBuilding(map,set,4,sy-3,5,3,T.PLATFORM);
-  // Sell shop (x=12)
-  buildBuilding(map,set,12,sy-3,5,3,T.PLATFORM);
-  // Upgrade shop (x=20)
-  buildBuilding(map,set,20,sy-3,5,3,T.PLATFORM);
-  // Warehouse (x=28)
-  buildBuilding(map,set,28,sy-3,6,3,T.PLATFORM);
-  // Craft table (x=37)
-  buildBuilding(map,set,37,sy-3,5,3,T.PLATFORM);
-  // Quest board (x=45)
-  buildBuilding(map,set,45,sy-3,4,3,T.PLATFORM);
-  // Generator (x=53)
-  buildBuilding(map,set,53,sy-2,3,2,T.PLATFORM);
-  // Oxygen station (x=59)
-  buildBuilding(map,set,59,sy-2,3,2,T.PLATFORM);
+  // ===== 建物配置 =====
+  // 建物はGRASS_Yの2タイル上から (sy = GRASS_Y - 2 = 7)
+  // 建物高さ2タイルに変更: y=7~8 を占有
+  // → スポーン(y=5,6)は完全に建物の上で常にAIR
+  const BH = 2;           // 建物高さ
+  const BY = GRASS_Y - BH; // = 7 (建物Y開始)
+
+  // 建物を左から右へ配置 (間に通路を確保)
+  // 各建物: x位置, 幅, 名前
+  // スポーン位置(x=3-5, y=3-6)は全部AIRになるよう建物を右端に寄せる
+  const buildings = [
+    {x:4,  w:4, name:'house'},     // 家: x=4-7
+    {x:10, w:4, name:'sell'},      // 売却所: x=10-13
+    {x:16, w:4, name:'upgrade'},   // 強化: x=16-19
+    {x:22, w:5, name:'warehouse'}, // 倉庫: x=22-26
+    {x:29, w:4, name:'craft'},     // クラフト: x=29-32
+    {x:35, w:4, name:'quest'},     // クエスト: x=35-38
+    {x:42, w:3, name:'generator'}, // 発電機: x=42-44
+    {x:46, w:3, name:'oxygen'},    // 酸素: x=46-48
+  ];
+
+  for(const b of buildings){
+    buildBuilding(map,set,b.x,BY,b.w,BH,T.PLATFORM);
+  }
+
+  // スポーン周辺(x=0-3, y=0-8)を確実にAIRに
+  for(let y=0;y<GRASS_Y;y++) for(let x=0;x<4;x++) map[y][x]=T.AIR;
 }
 
 function buildBuilding(map,set,x,y,w,h,wallTile){
+  // 左右の壁のみ (上下は開放)
   for(let dy=0;dy<h;dy++){
     set(x,y+dy,wallTile); set(x+w-1,y+dy,wallTile);
-    for(let dx=1;dx<w-1;dx++)set(x+dx,y+dy,T.AIR);
+    for(let dx=1;dx<w-1;dx++) set(x+dx,y+dy,T.AIR);
   }
-  for(let dx=0;dx<w;dx++){set(x+dx,y,wallTile); set(x+dx,y+h-1,wallTile);}
-  // door at bottom center
-  set(x+Math.floor(w/2),y+h-1,T.AIR);
+  // 屋根 (一番上のみ)
+  for(let dx=0;dx<w;dx++) set(x+dx,y,wallTile);
+  // 床なし: 草の上に直接乗る
 }
 
 // ================================================================
@@ -518,32 +528,33 @@ class VirtualPad{
     this.pointers=new Map();
     this._stick={x:baseX,y:baseY}; // 現在のスティック位置
 
-    const W=scene.scale.width, H=scene.scale.height;
+    // 常に実際の画面サイズを使用 (Scale.RESIZEでも正確に)
+    const W = window.innerWidth  || scene.scale.width  || 800;
+    const H = window.innerHeight || scene.scale.height || 600;
+    const isP2 = (playerId === 1);
 
-    // 2人プレイ時: P1が上半分、P2が下半分に配置
-    // 単独プレイ時: 下部全体に配置
-    // baseX/baseY はWorldScene側で調整済み
+    // ========= D-pad (左側) =========
+    // P1: 左1/4エリア, P2: 左の2/4エリア (2人時)
+    const padAreaX  = isP2 ? W/2 + W*0.11 : W*0.11;
+    const padAreaY  = H * 0.78;
+    const DPR = Math.min(70, W * 0.08);  // 画面に対して適切なサイズ
 
-    // D-pad: 大きな円 (radius=70)
-    const DPR=70;
-    this.dpX=baseX; this.dpY=baseY; this.dpR=DPR;
+    this.dpX = padAreaX; this.dpY = padAreaY; this.dpR = DPR;
 
-    // 右側ボタングループ: baseXの右側にまとめて配置
-    // P1: 右エリアは W の右半分、P2: 右エリアは W の右端
-    const isP2 = (playerId===1);
-    // ボタンのベース位置: D-padの右側 (画面を均等に分けた右エリア)
-    const btnAreaRight = isP2 ? W - 18 : W/2 - 18;
-    const btnAreaCenterX = btnAreaRight - 70;
-    const btnAreaCenterY = baseY;
-    // 右ボタンレイアウト (プラットフォーマー向け):
-    //        🦘Jump(大・緑)
-    //   🏠      ⛏Dig(大・赤)
-    //        💣  🪢
-    this.jumpBtn={x:btnAreaCenterX+20, y:btnAreaCenterY-62,  r:44, col:0x22CC44, label:'🦘'};
-    this.digBtn ={x:btnAreaRight-28,   y:btnAreaCenterY,     r:44, col:0xFF4422, label:'⛏'};
-    this.bombBtn={x:btnAreaCenterX,    y:btnAreaCenterY+10,  r:30, col:0xFF8800, label:'💣'};
-    this.ropeBtn={x:btnAreaRight-28,   y:btnAreaCenterY+62,  r:30, col:0xDEB887, label:'🪢'};
-    this.retBtn ={x:btnAreaCenterX-55, y:btnAreaCenterY-20,  r:30, col:0x4488FF, label:'🏠'};
+    // ========= アクションボタン (右側) =========
+    // P1: 右1/4エリア, P2: 右端エリア
+    const btnBaseX = isP2 ? W - W*0.10 : W/2 - W*0.10;
+    const btnBaseY = H * 0.78;
+    const btnR = Math.min(44, W * 0.055);   // 大ボタン半径
+    const smlR = Math.min(30, W * 0.038);   // 小ボタン半径
+    const gap  = btnR + smlR + 8;
+
+    // レイアウト: Jump(上大) Dig(右大) Bomb/Rope(下小) Home(左小)
+    this.jumpBtn={x:btnBaseX - gap,  y:btnBaseY - gap*0.8, r:btnR, col:0x22CC44, label:'🦘'};
+    this.digBtn ={x:btnBaseX,        y:btnBaseY,            r:btnR, col:0xFF4422, label:'⛏'};
+    this.bombBtn={x:btnBaseX - gap,  y:btnBaseY + gap*0.5,  r:smlR, col:0xFF8800, label:'💣'};
+    this.ropeBtn={x:btnBaseX,        y:btnBaseY + gap*0.9,  r:smlR, col:0xDEB887, label:'🪢'};
+    this.retBtn ={x:btnBaseX - gap*1.8, y:btnBaseY,         r:smlR, col:0x4488FF, label:'🏠'};
 
     this._buttons=[
       {btn:this.jumpBtn, key:'jump'},
@@ -844,7 +855,7 @@ class Player{
     // Return beacon
     if(ret&&this.inventory.beacon>0){
       this.removeItem('beacon');
-      this.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);
+      this.sprite.setPosition(2*TS,(BIOMES[0].y1-4)*TS);
     }
 
     // Oxygen (when in water)
@@ -940,7 +951,7 @@ class Player{
       // 失敗時: アイテムの50%ランダムロスト + ゴールド30%減
       this.hp=30; this.downed=false;
       this.sprite.clearTint();
-      this.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);
+      this.sprite.setPosition(2*TS,(BIOMES[0].y1-4)*TS);
       // アイテムロスト (ランダムに半分消える)
       const keys=Object.keys(this.inventory);
       let lostCount=0;
@@ -1416,11 +1427,11 @@ class WorldScene extends Phaser.Scene{
     this._trophyContainer=this.add.container(0,0).setDepth(3);
     this._updateTrophyDisplay();
 
-    // Spawn players
-    const spawnX=Math.floor(MW/2)*TS;
-    const spawnY=(BIOMES[0].y1-2)*TS;
+    // Spawn players - 建物のない左側の安全な場所 (x=1-2タイル、建物より上y=5)
+    const spawnX = 2 * TS;      // 左端の空きスペース (x=2 = 64px)
+    const spawnY = (BIOMES[0].y1 - 4) * TS; // 草の4タイル上 = 完全にAIR
     for(let i=0;i<this.numPlayers;i++){
-      const p=new Player(this,spawnX+(i*3-1)*TS,spawnY,i);
+      const p=new Player(this,spawnX+(i*2)*TS,spawnY,i);
       this.players.push(p);
       // Add collider with tilemap
       this.physics.add.collider(p.sprite,this.collisionLayer);
@@ -1531,17 +1542,13 @@ class WorldScene extends Phaser.Scene{
       p.addItem('rope',3); p.addItem('heal',2); p.addItem('battery',2); p.addItem('bomb',1);
     }
 
-    // モバイル: P1・P2それぞれバーチャルパッド (半透明・大きめボタン)
+    // モバイル: バーチャルパッド - 実際の画面サイズで配置
     this.pads=[];
     if(this.sys.game.device.input.touch){
-      const W=this.W, H=this.H;
-      if(this.numPlayers===1){
-        // 1人: 画面下部中央配置 (D-pad左、ボタン右)
-        this.pads.push(new VirtualPad(this, W*0.15, H*0.82, 0));
-      } else {
-        // 2人: 左半分P1、右半分P2
-        this.pads.push(new VirtualPad(this, W*0.11, H*0.82, 0));
-        this.pads.push(new VirtualPad(this, W*0.61, H*0.82, 1));
+      // VirtualPad内でwindow.innerWidthを使うので、ここではダミー値を渡す
+      this.pads.push(new VirtualPad(this, 0, 0, 0));
+      if(this.numPlayers>1){
+        this.pads.push(new VirtualPad(this, 0, 0, 1));
       }
     }
 
@@ -1589,20 +1596,19 @@ class WorldScene extends Phaser.Scene{
   }
 
   _placeBuildingSprites(){
-    // 地上タイルY座標 (SURFACE_Y-1行目 = 草の1タイル上に建物を置く)
-    const sy = (BIOMES[0].y1 - 1) * TS; // 草レベルのY pixel
+    // 草レベルの1タイル上 = 建物の底面
+    const sy = (BIOMES[0].y1 - 1) * TS; // = 9 * 32 = 288px
 
-    // 建物定義: {key, tileX, displayW}
+    // buildSurface と同じ位置 (エレベーターは削除済み)
     const bldgs=[
       {key:'bldg_house',    tx:4,  label:'家'},
-      {key:'bldg_sell',     tx:12, label:'売却所'},
-      {key:'bldg_upgrade',  tx:20, label:'強化'},
-      {key:'bldg_warehouse',tx:28, label:'倉庫'},
-      {key:'bldg_craft',    tx:37, label:'クラフト'},
-      {key:'bldg_quest',    tx:45, label:'クエスト'},
-      {key:'bldg_generator',tx:53, label:'発電機'},
-      {key:'bldg_oxygen',   tx:59, label:'酸素'},
-      {key:'bldg_elevator', tx:Math.floor(MW/2)-1, label:'EV'},
+      {key:'bldg_sell',     tx:10, label:'売却所'},
+      {key:'bldg_upgrade',  tx:16, label:'強化'},
+      {key:'bldg_warehouse',tx:22, label:'倉庫'},
+      {key:'bldg_craft',    tx:29, label:'クラフト'},
+      {key:'bldg_quest',    tx:35, label:'クエスト'},
+      {key:'bldg_generator',tx:42, label:'発電機'},
+      {key:'bldg_oxygen',   tx:46, label:'酸素'},
     ];
 
     for(const b of bldgs){
@@ -2345,12 +2351,12 @@ class WorldScene extends Phaser.Scene{
       if(py>BIOMES[0].y1+2)continue; // underground
       // Building zones
       const bldgs=[
-        {name:'SELL',x:14,label:'[E] 売却所'},
-        {name:'UPGRADE',x:22,label:'[E] 強化Shop'},
-        {name:'QUEST',x:47,label:'[E] クエスト掲示板'},
-        {name:'CRAFT',x:39,label:'[E] クラフト台'},
-        {name:'WAREHOUSE',x:31,label:'[E] 倉庫'},
-        {name:'OXYGEN',x:61,label:'[E] 酸素補給'},
+        {name:'SELL',     x:12, label:'[E] 売却所'},
+        {name:'UPGRADE',  x:18, label:'[E] 強化Shop'},
+        {name:'WAREHOUSE',x:24, label:'[E] 倉庫'},
+        {name:'CRAFT',    x:31, label:'[E] クラフト台'},
+        {name:'QUEST',    x:37, label:'[E] クエスト掲示板'},
+        {name:'OXYGEN',   x:47, label:'[E] 酸素補給'},
       ];
       for(const b of bldgs){
         if(Math.abs(px-b.x)<3.5){
@@ -2929,7 +2935,7 @@ class UIScene extends Phaser.Scene{
           if(k==='heal')player.heal();
           else if(k==='rope')player.placeRope(this._getWorld().mapData);
           else if(k==='bomb')player.useBomb(this._getWorld().mapData);
-          else if(k==='beacon'){player.removeItem('beacon');player.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);}
+          else if(k==='beacon'){player.removeItem('beacon');player.sprite.setPosition(2*TS,(BIOMES[0].y1-4)*TS);}
           this.openInventoryMenu(player);
         });
         this.menuContainer.add(useBtn);
