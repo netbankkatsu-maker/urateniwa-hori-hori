@@ -479,74 +479,184 @@ function buildBuilding(map,set,x,y,w,h,wallTile){
 // VIRTUAL PAD (mobile)
 // ================================================================
 class VirtualPad{
-  constructor(scene,x,y,playerId){
+  /**
+   * スマホ用バーチャルパッド
+   * - 左側: 半透明の大きな十字キー (D-pad)
+   * - 右側: ⛏掘るボタン、🧨爆弾、🪢ロープ、🏠帰還の4ボタン
+   * - 最小サイズ60px
+   */
+  constructor(scene, baseX, baseY, playerId){
     this.scene=scene; this.pid=playerId;
     this.dx=0; this.dy=0; this.dig=false; this.ret=false;
+    this.bomb=false; this.rope=false; this.heal=false;
     this.pointers=new Map();
-    this.bx=x; this.by=y; // base position
+    this._stick={x:baseX,y:baseY}; // 現在のスティック位置
 
+    const W=scene.scale.width, H=scene.scale.height;
+
+    // 2人プレイ時: P1が上半分、P2が下半分に配置
+    // 単独プレイ時: 下部全体に配置
+    // baseX/baseY はWorldScene側で調整済み
+
+    // D-pad: 大きな円 (radius=70)
+    const DPR=70;
+    this.dpX=baseX; this.dpY=baseY; this.dpR=DPR;
+
+    // 右側ボタン: 3ボタン × 大きめ (r=40)
+    const BX=W-80*(playerId===1?0.5:1);  // P2は右寄り調整
+    // 実際のボタン位置 (画面右下)
+    const rightX = W - (playerId===1 ? W/2-10 : 0) - 60;
+    this.digBtn ={x:rightX-45, y:baseY-15, r:40, col:0xFF4422, label:'⛏'};
+    this.bombBtn={x:rightX+30, y:baseY-60, r:32, col:0xFF8800, label:'💣'};
+    this.ropeBtn={x:rightX+30, y:baseY+20, r:32, col:0xDEB887, label:'🪢'};
+    this.retBtn ={x:rightX-45, y:baseY+55, r:32, col:0x4488FF, label:'🏠'};
+
+    this._buttons=[
+      {btn:this.digBtn,  key:'dig'},
+      {btn:this.bombBtn, key:'bomb'},
+      {btn:this.ropeBtn, key:'rope'},
+      {btn:this.retBtn,  key:'ret'},
+    ];
+
+    // グラフィックス描画
     const g=scene.add.graphics().setScrollFactor(0).setDepth(200);
     this.gfx=g;
+    this._drawPad();
 
-    // D-pad base
-    const dpr=50;
-    g.fillStyle(0xffffff,0.2); g.fillCircle(x,y,dpr);
-    this.dpX=x; this.dpY=y; this.dpR=dpr;
+    // テキストラベル格納
+    this._labels=[];
+    this._drawLabels();
 
-    // Action buttons
-    const W=scene.scale.width, H=scene.scale.height;
-    const bx2=W-60, by2=y;
-    this.digBtn={x:bx2-50,y:by2+10,r:35};
-    this.retBtn={x:bx2+10,y:by2-40,r:28};
+    // スティックグラフィック
+    this.stickGfx=scene.add.graphics().setScrollFactor(0).setDepth(202);
+    this._drawStick();
 
-    g.fillStyle(0xFF4444,0.5); g.fillCircle(this.digBtn.x,this.digBtn.y,35);
-    g.fillStyle(0x4444FF,0.4); g.fillCircle(this.retBtn.x,this.retBtn.y,28);
-
-    // labels
-    scene.add.text(this.digBtn.x,this.digBtn.y,'⛏',{fontSize:'20px'})
-      .setOrigin(.5).setScrollFactor(0).setDepth(201);
-    scene.add.text(this.retBtn.x,this.retBtn.y,'🏠',{fontSize:'16px'})
-      .setOrigin(.5).setScrollFactor(0).setDepth(201);
-
-    // touch listeners
+    // タッチリスナー
     scene.input.on('pointerdown',this._down,this);
     scene.input.on('pointermove',this._move,this);
     scene.input.on('pointerup',this._up,this);
   }
+
+  _drawPad(){
+    const g=this.gfx; g.clear();
+
+    // D-pad背景: 半透明の大きな円
+    g.fillStyle(0x000000,0.35); g.fillCircle(this.dpX,this.dpY,this.dpR);
+    g.lineStyle(2,0xFFFFFF,0.3); g.strokeCircle(this.dpX,this.dpY,this.dpR);
+
+    // D-pad 十字矢印ガイド (半透明)
+    const r=this.dpR*0.55;
+    g.lineStyle(2,0xFFFFFF,0.25);
+    [[0,-r],[0,r],[-r,0],[r,0]].forEach(([dx,dy])=>{
+      g.beginPath();
+      g.moveTo(this.dpX,this.dpY);
+      g.lineTo(this.dpX+dx,this.dpY+dy);
+      g.strokePath();
+    });
+    // 方向矢印
+    g.fillStyle(0xFFFFFF,0.35);
+    const ar=10, aw=6;
+    // 上
+    g.fillTriangle(this.dpX,this.dpY-r-ar, this.dpX-aw,this.dpY-r+2, this.dpX+aw,this.dpY-r+2);
+    // 下
+    g.fillTriangle(this.dpX,this.dpY+r+ar, this.dpX-aw,this.dpY+r-2, this.dpX+aw,this.dpY+r-2);
+    // 左
+    g.fillTriangle(this.dpX-r-ar,this.dpY, this.dpX-r+2,this.dpY-aw, this.dpX-r+2,this.dpY+aw);
+    // 右
+    g.fillTriangle(this.dpX+r+ar,this.dpY, this.dpX+r-2,this.dpY-aw, this.dpX+r-2,this.dpY+aw);
+
+    // アクションボタン
+    for(const {btn} of this._buttons){
+      g.fillStyle(btn.col,0.55); g.fillCircle(btn.x,btn.y,btn.r);
+      g.lineStyle(2,0xFFFFFF,0.4); g.strokeCircle(btn.x,btn.y,btn.r);
+    }
+  }
+
+  _drawLabels(){
+    // ラベル削除してから再描画
+    this._labels.forEach(l=>l.destroy());
+    this._labels=[];
+    for(const {btn} of this._buttons){
+      const t=this.scene.add.text(btn.x,btn.y,btn.label,{fontSize:'22px'})
+        .setOrigin(.5).setScrollFactor(0).setDepth(203);
+      this._labels.push(t);
+    }
+    // P番号
+    const pLabel=this.scene.add.text(this.dpX,this.dpY-this.dpR-18,
+      this.pid===0?'P1':'P2',
+      {fontSize:'11px',color:this.pid===0?'#88AAFF':'#FF8866',
+       fontFamily:'monospace',backgroundColor:'#0008',padding:{x:3,y:1}})
+      .setOrigin(.5).setScrollFactor(0).setDepth(203);
+    this._labels.push(pLabel);
+  }
+
+  _drawStick(){
+    const g=this.stickGfx; g.clear();
+    const sx=this.dpX+this.dx*this.dpR*0.5;
+    const sy=this.dpY+this.dy*this.dpR*0.5;
+    g.fillStyle(0xFFFFFF,0.6); g.fillCircle(sx,sy,24);
+    g.lineStyle(2,0xFFFFFF,0.8); g.strokeCircle(sx,sy,24);
+  }
+
   _down(p){
     const {x,y}=p;
-    if(this._inDp(x,y)){this.pointers.set(p.id,{type:'dp',x,y});this._updateDp(x,y);}
-    else if(this._inBtn(x,y,this.digBtn)){this.dig=true;this.pointers.set(p.id,{type:'dig'});}
-    else if(this._inBtn(x,y,this.retBtn)){this.ret=true;this.pointers.set(p.id,{type:'ret'});}
+    if(this._inDp(x,y)){
+      this.pointers.set(p.id,{type:'dp',x,y});
+      this._updateDp(x,y);
+    } else {
+      for(const {btn,key} of this._buttons){
+        if(this._inBtn(x,y,btn)){
+          this[key]=true;
+          this.pointers.set(p.id,{type:key});
+          this._highlightBtn(btn,true);
+          break;
+        }
+      }
+    }
   }
+
   _move(p){
     const t=this.pointers.get(p.id);
-    if(t&&t.type==='dp'){t.x=p.x;t.y=p.y;this._updateDp(p.x,p.y);}
+    if(t&&t.type==='dp'){this._updateDp(p.x,p.y);}
   }
+
   _up(p){
     const t=this.pointers.get(p.id);
     if(t){
-      if(t.type==='dp'){this.dx=0;this.dy=0;}
-      else if(t.type==='dig')this.dig=false;
-      else if(t.type==='ret')this.ret=false;
+      if(t.type==='dp'){this.dx=0;this.dy=0;this._drawStick();}
+      else {this[t.type]=false;}
       this.pointers.delete(p.id);
     }
   }
-  _inDp(x,y){return Math.hypot(x-this.dpX,y-this.dpY)<this.dpR+20;}
-  _inBtn(x,y,b){return Math.hypot(x-b.x,y-b.y)<b.r+10;}
+
+  _highlightBtn(btn,on){
+    // ボタン押下時の視覚フィードバック (スケールは変えられないのでalpha変更)
+    this.gfx.fillStyle(btn.col, on?0.9:0.55);
+    this.gfx.fillCircle(btn.x,btn.y,btn.r);
+  }
+
+  _inDp(x,y){return Math.hypot(x-this.dpX,y-this.dpY)<this.dpR+24;}
+  _inBtn(x,y,b){return Math.hypot(x-b.x,y-b.y)<b.r+12;}
+
   _updateDp(x,y){
     const dx=x-this.dpX, dy=y-this.dpY;
     const d=Math.hypot(dx,dy);
-    if(d<5){this.dx=0;this.dy=0;return;}
-    const nx=dx/d, ny=dy/d;
-    this.dx=Math.abs(nx)>.3?Math.sign(nx):0;
-    this.dy=Math.abs(ny)>.4?Math.sign(ny):0;
+    if(d<8){this.dx=0;this.dy=0;}
+    else{
+      const nx=dx/d, ny=dy/d;
+      this.dx=Math.abs(nx)>0.25?Math.sign(nx):0;
+      this.dy=Math.abs(ny)>0.35?Math.sign(ny):0;
+    }
+    this._drawStick();
   }
+
   destroy(){
     this.scene.input.off('pointerdown',this._down,this);
     this.scene.input.off('pointermove',this._move,this);
     this.scene.input.off('pointerup',this._up,this);
     this.gfx.destroy();
+    this.stickGfx.destroy();
+    this._labels.forEach(l=>l.destroy());
   }
 }
 
@@ -659,6 +769,11 @@ class Player{
     const up   =keys.up    ||(pad&&pad.dy<0);
     const dig  =keys.dig   ||(pad&&pad.dig);
     const ret  =keys.ret   ||(pad&&pad.ret);
+    // バーチャルパッドのアクションボタン処理
+    if(pad&&pad.bomb&&!this._padBombPrev){this.useBomb(this.scene.mapData);}
+    if(pad&&pad.rope&&!this._padRopePrev){this.placeRope(this.scene.mapData);}
+    this._padBombPrev=pad?.bomb||false;
+    this._padRopePrev=pad?.rope||false;
 
     if(left){vx=-spd;this.facingRight=false;}
     else if(right){vx=spd;this.facingRight=true;}
@@ -1366,15 +1481,17 @@ class WorldScene extends Phaser.Scene{
       p.addItem('rope',3); p.addItem('heal',2); p.addItem('battery',2); p.addItem('bomb',1);
     }
 
-    // モバイル: P1・P2それぞれバーチャルパッド
+    // モバイル: P1・P2それぞれバーチャルパッド (半透明・大きめボタン)
     this.pads=[];
     if(this.sys.game.device.input.touch){
-      const H=this.H;
-      // P1 (上半分)
-      this.pads.push(new VirtualPad(this,80,H/4*3,0));
-      // P2がいれば追加 (下半分 or 右側)
-      if(this.numPlayers>1){
-        this.pads.push(new VirtualPad(this,this.W/2+80,H/4*3,1));
+      const W=this.W, H=this.H;
+      if(this.numPlayers===1){
+        // 1人: 画面下部中央配置 (D-pad左、ボタン右)
+        this.pads.push(new VirtualPad(this, W*0.15, H*0.82, 0));
+      } else {
+        // 2人: 左半分P1、右半分P2
+        this.pads.push(new VirtualPad(this, W*0.11, H*0.82, 0));
+        this.pads.push(new VirtualPad(this, W*0.61, H*0.82, 1));
       }
     }
 
