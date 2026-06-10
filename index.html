@@ -212,6 +212,24 @@ const GS={
 };
 
 // ================================================================
+// ================================================================
+// SAFE TILE UPDATE - Phaserのputが面計算でクラッシュするのを回避
+// ================================================================
+function safePutTile(layer, tileId, tx, ty){
+  if(!layer||!layer.layer||!layer.layer.data) return;
+  const row = layer.layer.data[ty];
+  if(!row) return;
+  const tile = row[tx];
+  if(!tile) return;
+  tile.index = tileId;
+  // 衝突フラグを更新
+  const bd = typeof BD !== 'undefined' ? BD : {};
+  if(bd[tileId]){
+    tile.setCollision(!!bd[tileId].solid, !!bd[tileId].solid, !!bd[tileId].solid, !!bd[tileId].solid, false);
+  }
+}
+
+// ================================================================
 // SEEDED RNG (mulberry32)
 // ================================================================
 function mkRNG(seed){
@@ -1003,7 +1021,7 @@ class Player{
           if(b!==undefined&&b!==T.BEDROCK&&b!==T.AIR){
             const def=BD[b]; if(def&&def.drop){this.addItem(def.drop,1);}
             map[by][bx]=T.AIR;
-            if(this.scene.layer)this.scene.layer.putTileAt(T.AIR,bx,by);
+            if(this.scene.layer)safePutTile(this.scene.layer,T.AIR,bx,by);
           }
         }
       }
@@ -1018,7 +1036,7 @@ class Player{
     const ty=Math.floor(this.sprite.y/TS)-1;
     if(map[ty]&&map[ty][tx]===T.AIR){
       map[ty][tx]=T.ROPE;
-      if(this.scene.layer)this.scene.layer.putTileAt(T.ROPE,tx,ty);
+      safePutTile(this.scene.layer,T.ROPE,tx,ty);
       this.removeItem('rope');
       this.scene.showMsg('🪢 ロープ設置',0xDEB887);
     }
@@ -1795,7 +1813,7 @@ class WorldScene extends Phaser.Scene{
   }
 
   onBlockBroken(tx,ty,blockType,player){
-    if(this.layer)this.layer.putTileAt(T.AIR,tx,ty);
+    safePutTile(this.layer,T.AIR,tx,ty);
     // オンライン同期
     if(GS.isOnline)this._broadcastMine(tx,ty);
 
@@ -1863,14 +1881,14 @@ class WorldScene extends Phaser.Scene{
   activateSwitch(sx,sy){
     // Find associated doors and open them
     this.mapData[sy][sx]=T.SW_ON;
-    this.layer.putTileAt(T.SW_ON,sx,sy);
+    safePutTile(this.layer,T.SW_ON,sx,sy);
     // Open doors in vicinity
     for(let dy=-20;dy<=20;dy++){
       for(let dx=-20;dx<=20;dx++){
         const bt=this.mapData[sy+dy]?.[sx+dx];
         if(bt===T.DOOR_C){
           this.mapData[sy+dy][sx+dx]=T.DOOR_O;
-          this.layer.putTileAt(T.DOOR_O,sx+dx,sy+dy);
+          safePutTile(this.layer,T.DOOR_O,sx+dx,sy+dy);
           // Update collision
           this.layer.setCollision([T.DOOR_C],true);
           this.layer.setCollision([T.DOOR_O],false);
@@ -2095,7 +2113,7 @@ class WorldScene extends Phaser.Scene{
     const {tx,ty,block=T.AIR}=data;
     if(this.mapData[ty]){
       this.mapData[ty][tx]=block;
-      if(this.layer)this.layer.putTileAt(block,tx,ty);
+      safePutTile(this.layer,block,tx,ty);
     }
   }
 
@@ -2119,7 +2137,7 @@ class WorldScene extends Phaser.Scene{
         // 確率で通路を土ブロックで塞ぐ (帰り道が塞がる)
         if(rng()<0.25){
           this.mapData[ty][tx]=T.DIRT;
-          if(this.layer)this.layer.putTileAt(T.DIRT,tx,ty);
+          safePutTile(this.layer,T.DIRT,tx,ty);
           if(GS.isOnline)this._broadcastMineRestore(tx,ty,T.DIRT);
         }
       }
