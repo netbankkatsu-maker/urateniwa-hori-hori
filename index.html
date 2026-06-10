@@ -535,18 +535,24 @@ class VirtualPad{
     const btnAreaRight = isP2 ? W - 18 : W/2 - 18;
     const btnAreaCenterX = btnAreaRight - 70;
     const btnAreaCenterY = baseY;
-    // ダイヤモンド配置: 上=爆弾 下=帰還 左=ロープ 右(大)=掘る
-    this.digBtn ={x:btnAreaRight-30,  y:btnAreaCenterY,     r:42, col:0xFF4422, label:'⛏'};
-    this.bombBtn={x:btnAreaCenterX,   y:btnAreaCenterY-55,  r:32, col:0xFF8800, label:'💣'};
-    this.ropeBtn={x:btnAreaCenterX,   y:btnAreaCenterY+55,  r:32, col:0xDEB887, label:'🪢'};
-    this.retBtn ={x:btnAreaCenterX-60,y:btnAreaCenterY,     r:32, col:0x4488FF, label:'🏠'};
+    // 右ボタンレイアウト (プラットフォーマー向け):
+    //        🦘Jump(大・緑)
+    //   🏠      ⛏Dig(大・赤)
+    //        💣  🪢
+    this.jumpBtn={x:btnAreaCenterX+20, y:btnAreaCenterY-62,  r:44, col:0x22CC44, label:'🦘'};
+    this.digBtn ={x:btnAreaRight-28,   y:btnAreaCenterY,     r:44, col:0xFF4422, label:'⛏'};
+    this.bombBtn={x:btnAreaCenterX,    y:btnAreaCenterY+10,  r:30, col:0xFF8800, label:'💣'};
+    this.ropeBtn={x:btnAreaRight-28,   y:btnAreaCenterY+62,  r:30, col:0xDEB887, label:'🪢'};
+    this.retBtn ={x:btnAreaCenterX-55, y:btnAreaCenterY-20,  r:30, col:0x4488FF, label:'🏠'};
 
     this._buttons=[
+      {btn:this.jumpBtn, key:'jump'},
       {btn:this.digBtn,  key:'dig'},
       {btn:this.bombBtn, key:'bomb'},
       {btn:this.ropeBtn, key:'rope'},
       {btn:this.retBtn,  key:'ret'},
     ];
+    this.jump=false; // ジャンプ状態
 
     // グラフィックス描画
     const g=scene.add.graphics().setScrollFactor(0).setDepth(200);
@@ -799,7 +805,7 @@ class Player{
     // Input
     const left =keys.left  ||(pad&&pad.dx<0);
     const right=keys.right ||(pad&&pad.dx>0);
-    const up   =keys.up    ||(pad&&pad.dy<0);
+    const up   =keys.up    ||(pad&&pad.dy<0)||(pad&&pad.jump);
     const dig  =keys.dig   ||(pad&&pad.dig);
     const ret  =keys.ret   ||(pad&&pad.ret);
     // バーチャルパッドのアクションボタン処理
@@ -811,8 +817,10 @@ class Player{
     if(left){vx=-spd;this.facingRight=false;}
     else if(right){vx=spd;this.facingRight=true;}
 
-    // Jump
-    if(up&&this.onGround){vy=-460;}
+    // Jump (ジャンプボタン: 一回押し検知で連続ジャンプ防止)
+    const jumpPressed = up && !(this._prevUp||false);
+    if((jumpPressed||up)&&this.onGround){vy=-460;}
+    this._prevUp = up;
 
     // On ladder/rope
     const tx=Math.floor(this.sprite.x/TS),ty=Math.floor(this.sprite.y/TS);
