@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hori-coop",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "C:\\Users\\katsu-pc\\Desktop\\claude\\裏庭ほりほり"],
+      "port": 8080
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# スプライトシート元画像（容量大）は除外、必要なら手動追加
+sprite_sheets/ChatGPT*.png
+sprite_sheets/crop_all.py
+sprite_sheets/crop_final.py
+sprite_sheets/debug_grid.py

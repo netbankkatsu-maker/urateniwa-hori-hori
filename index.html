@@ -1,0 +1,2192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>穴掘りCoOp - HORI HORI</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;touch-action:none;user-select:none;}
+canvas{display:block;}
+#orient{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,.9);color:#fff;font-family:monospace;font-size:22px;
+align-items:center;justify-content:center;text-align:center;z-index:9999;flex-direction:column;gap:16px;}
+@media(orientation:portrait)and(max-width:900px){#orient{display:flex;}}
+</style>
+</head>
+<body>
+<div id="orient">
+  <div style="font-size:48px">📱➡️</div>
+  <div>横向きにしてください<br><small>Please rotate to landscape</small></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script>
+'use strict';
+
+// ================================================================
+// ASSETS - ここのパスを変えるだけで画像差し替え可能
+// ================================================================
+const ASSETS = {
+  // --- プレイヤー ---
+  player_idle:   'assets/player_idle.png',
+  player_walk1:  'assets/player_walk1.png', player_walk2:'assets/player_walk2.png',
+  player_walk3:  'assets/player_walk3.png', player_walk4:'assets/player_walk4.png',
+  player_dig1:   'assets/player_dig1.png',  player_dig2:'assets/player_dig2.png',
+  player_dig3:   'assets/player_dig3.png',  player_dig4:'assets/player_dig4.png',
+  player_jump1:  'assets/player_jump1.png', player_jump2:'assets/player_jump2.png',
+  player_jump3:  'assets/player_jump3.png',
+  player_dmg1:   'assets/player_dmg1.png',  player_dmg2:'assets/player_dmg2.png',
+  player_down1:  'assets/player_down1.png',
+  player_rescue1:'assets/player_rescue1.png',
+  player_pick1:  'assets/player_pick1.png', player_drill1:'assets/player_drill1.png',
+  player_bomb1:  'assets/player_bomb1.png',
+  // --- 敵 ---
+  enemy_worm:  'assets/enemy_worm.png',  enemy_bat:'assets/enemy_bat.png',
+  enemy_slime: 'assets/enemy_slime.png', enemy_golem:'assets/enemy_golem.png',
+  enemy_plant: 'assets/enemy_plant.png', enemy_mushroom:'assets/enemy_mushroom.png',
+  enemy_arobot:'assets/enemy_arobot.png',enemy_giant_worm:'assets/enemy_giant_worm.png',
+  enemy_boss:  'assets/enemy_boss.png',
+  // --- タイル ---
+  tile_grass:'assets/tile_grass.png',    tile_dirt_surface:'assets/tile_dirt_surface.png',
+  tile_dirt_soft:'assets/tile_dirt_soft.png', tile_dirt_hard:'assets/tile_dirt_hard.png',
+  tile_stone:'assets/tile_stone.png',    tile_bedrock:'assets/tile_bedrock.png',
+  tile_cracked:'assets/tile_cracked.png',tile_indestructible:'assets/tile_indestructible.png',
+  tile_ore_dirt:'assets/tile_ore_dirt.png', tile_cave_bg:'assets/tile_cave_bg.png',
+  tile_water:'assets/tile_water.png',    tile_lava:'assets/tile_lava.png',
+  tile_gas:'assets/tile_gas.png',        tile_ladder:'assets/tile_ladder.png',
+  tile_platform:'assets/tile_platform.png', tile_rope_tile:'assets/tile_rope.png',
+  // --- 鉱石 ---
+  ore_stone:'assets/ore_stone.png',      ore_coal:'assets/ore_coal.png',
+  ore_copper:'assets/ore_copper.png',    ore_iron:'assets/ore_iron.png',
+  ore_gold:'assets/ore_gold.png',        ore_gem:'assets/ore_gem.png',
+  ore_diamond:'assets/ore_diamond.png',  ore_ancient_coin:'assets/ore_ancient_coin.png',
+  ore_mystery:'assets/ore_mystery.png',  ore_giant:'assets/ore_giant.png',
+  ore_fossil:'assets/ore_fossil.png',
+  // --- 建物 ---
+  bldg_house:'assets/bldg_house.png',    bldg_sell:'assets/bldg_sell.png',
+  bldg_upgrade:'assets/bldg_upgrade.png',bldg_warehouse:'assets/bldg_warehouse.png',
+  bldg_craft:'assets/bldg_craft.png',    bldg_quest:'assets/bldg_quest.png',
+  bldg_elevator:'assets/bldg_elevator.png', bldg_generator:'assets/bldg_generator.png',
+  bldg_oxygen:'assets/bldg_oxygen.png',  bldg_lift:'assets/bldg_lift.png',
+  // --- 背景 ---
+  bg_sky:'assets/bg_sky.png',            bg_backyard:'assets/bg_backyard.png',
+  bg_shallow_underground:'assets/bg_shallow_underground.png',
+  bg_bedrock:'assets/bg_bedrock.png',    bg_mine:'assets/bg_mine.png',
+  bg_fossil:'assets/bg_fossil.png',      bg_underground_lake:'assets/bg_underground_lake.png',
+  bg_ancient_ruins:'assets/bg_ancient_ruins.png', bg_magma:'assets/bg_magma.png',
+  bg_deepest:'assets/bg_deepest.png',    bg_night_surface:'assets/bg_night_surface.png',
+  // --- アイテムアイコン ---
+  pickaxe_lv1:'assets/pickaxe_lv1.png',  pickaxe_lv2:'assets/pickaxe_lv2.png',
+  pickaxe_lv3:'assets/pickaxe_lv3.png',  pickaxe_lv4:'assets/pickaxe_lv4.png',
+  pickaxe_lv5:'assets/pickaxe_lv5.png',
+  bomb_item:'assets/bomb.png',           rope_item:'assets/rope_item.png',
+  heal_item:'assets/heal_item.png',      battery_item:'assets/battery_item.png',
+  oxygen_item:'assets/oxygen_item.png',  lantern:'assets/lantern.png',
+  // --- 宝箱 ---
+  chest_wood:'assets/chest_wood.png',    chest_iron:'assets/chest_iron.png',
+  chest_gold:'assets/chest_gold.png',    chest_ancient:'assets/chest_ancient.png',
+  // --- エフェクト ---
+  fx_dig:'assets/fx_dig.png',            fx_explosion:'assets/fx_explosion.png',
+  fx_heal:'assets/fx_heal.png',          fx_upgrade_success:'assets/fx_upgrade_success.png',
+  fx_sell:'assets/fx_sell.png',          fx_discovery:'assets/fx_discovery.png',
+};
+
+// ================================================================
+// CONSTANTS
+// ================================================================
+const TS = 32; // tile size px
+const MW = 80; // map width tiles
+const MH = 320;// map height tiles
+
+const BIOMES = [
+  {name:'地上',      y0:0,   y1:10,  bg:0x87CEEB,darkFactor:0},
+  {name:'浅い土',    y0:10,  y1:50,  bg:0x6B3A2A,darkFactor:.15},
+  {name:'岩盤層',    y0:50,  y1:90,  bg:0x4A4A4A,darkFactor:.3},
+  {name:'鉱山層',    y0:90,  y1:130, bg:0x3A3A3A,darkFactor:.45},
+  {name:'化石層',    y0:130, y1:160, bg:0x2A2A1A,darkFactor:.55},
+  {name:'地下湖',    y0:160, y1:190, bg:0x0A1A3A,darkFactor:.65},
+  {name:'古代遺跡',  y0:190, y1:220, bg:0x1A0A2A,darkFactor:.75},
+  {name:'マグマ層',  y0:220, y1:260, bg:0x2A0A00,darkFactor:.8},
+  {name:'最深部',    y0:260, y1:320, bg:0x050505,darkFactor:.9},
+];
+
+// Tile IDs
+const T={
+  AIR:0,GRASS:1,DIRT:2,STONE:3,HARD:4,
+  COPPER:5,IRON:6,GOLD:7,GEM:8,FOSSIL:9,
+  ANCIENT:10,MACHINE:11,UNK_ORE:12,
+  BEDROCK:13,WATER:14,LAVA:15,GAS:16,
+  ROPE:17,CHEST:18,SW_OFF:19,SW_ON:20,
+  DOOR_C:21,DOOR_O:22,CRYSTAL:23,
+  LADDER:24,STALA:25,ANWALL:26,
+  MAGMASTONE:27,DEEPCRYSTAL:28,PLATFORM:29,
+  ELEV:30,MUSHROOM:31
+};
+const NUM_T=32;
+
+const BD={// block defs: solid,hardness,drop,color,alpha,emit(light emit)
+  [T.AIR]:       {solid:0,h:0,   drop:null,        col:'#87CEEB',a:.0},
+  [T.GRASS]:     {solid:1,h:2,   drop:null,        col:'#4a7c3f'},
+  [T.DIRT]:      {solid:1,h:3,   drop:'stone',     col:'#8B5E3C'},
+  [T.STONE]:     {solid:1,h:6,   drop:'stone',     col:'#808080'},
+  [T.HARD]:      {solid:1,h:14,  drop:'stone',     col:'#505050'},
+  [T.COPPER]:    {solid:1,h:5,   drop:'copper',    col:'#b87333'},
+  [T.IRON]:      {solid:1,h:9,   drop:'iron',      col:'#a0a8ad'},
+  [T.GOLD]:      {solid:1,h:12,  drop:'gold',      col:'#FFD700'},
+  [T.GEM]:       {solid:1,h:15,  drop:'gem',       col:'#00CFFF'},
+  [T.FOSSIL]:    {solid:1,h:10,  drop:'fossil',    col:'#C8A96E'},
+  [T.ANCIENT]:   {solid:1,h:16,  drop:'ancient',   col:'#9B59B6'},
+  [T.MACHINE]:   {solid:1,h:18,  drop:'machine',   col:'#2ECC71'},
+  [T.UNK_ORE]:   {solid:1,h:22,  drop:'unk_ore',   col:'#FF69B4'},
+  [T.BEDROCK]:   {solid:1,h:999, drop:null,        col:'#111111'},
+  [T.WATER]:     {solid:0,h:0,   drop:null,        col:'#1A6B8A',a:.7},
+  [T.LAVA]:      {solid:0,h:0,   drop:null,        col:'#FF4500',a:.9,emit:1},
+  [T.GAS]:       {solid:0,h:0,   drop:null,        col:'#7CFC00',a:.4},
+  [T.ROPE]:      {solid:0,h:1,   drop:'rope',      col:'#DEB887'},
+  [T.CHEST]:     {solid:1,h:4,   drop:'chest',     col:'#DAA520'},
+  [T.SW_OFF]:    {solid:1,h:2,   drop:null,        col:'#FF0000'},
+  [T.SW_ON]:     {solid:1,h:2,   drop:null,        col:'#00FF00'},
+  [T.DOOR_C]:    {solid:1,h:999, drop:null,        col:'#8B4513'},
+  [T.DOOR_O]:    {solid:0,h:0,   drop:null,        col:'#654321',a:.2},
+  [T.CRYSTAL]:   {solid:1,h:12,  drop:'crystal',   col:'#E0E0FF'},
+  [T.LADDER]:    {solid:0,h:1,   drop:'ladder',    col:'#A0522D'},
+  [T.STALA]:     {solid:1,h:6,   drop:'stone',     col:'#909090'},
+  [T.ANWALL]:    {solid:1,h:18,  drop:'ancient',   col:'#7F6F4F'},
+  [T.MAGMASTONE]:{solid:1,h:20,  drop:'magma_ore', col:'#CC3300'},
+  [T.DEEPCRYSTAL]:{solid:1,h:24, drop:'deepcrystal',col:'#8800FF'},
+  [T.PLATFORM]:  {solid:1,h:3,   drop:'wood',      col:'#8B6914'},
+  [T.ELEV]:      {solid:0,h:0,   drop:null,        col:'#333344'},
+  [T.MUSHROOM]:  {solid:0,h:1,   drop:null,        col:'#FF69B4',a:.8},
+};
+
+const ITEMS={
+  stone:      {name:'石',      w:1, sell:2,   col:'#808080',rare:0},
+  copper:     {name:'銅',      w:2, sell:8,   col:'#b87333',rare:0},
+  iron:       {name:'鉄',      w:3, sell:20,  col:'#a0a8ad',rare:0},
+  gold:       {name:'金',      w:4, sell:80,  col:'#FFD700',rare:0},
+  gem:        {name:'宝石',    w:2, sell:250, col:'#00CFFF',rare:1},
+  fossil:     {name:'化石',    w:3, sell:150, col:'#C8A96E',rare:0},
+  ancient:    {name:'古代品',  w:2, sell:500, col:'#9B59B6',rare:1},
+  machine:    {name:'機械部品',w:3, sell:400, col:'#2ECC71',rare:1},
+  unk_ore:    {name:'謎の鉱石',w:2, sell:1000,col:'#FF69B4',rare:1},
+  crystal:    {name:'水晶',    w:2, sell:180, col:'#E0E0FF',rare:0},
+  magma_ore:  {name:'マグマ鉱',w:4, sell:300, col:'#CC3300',rare:0},
+  deepcrystal:{name:'深晶石',  w:2, sell:800, col:'#8800FF',rare:1},
+  wood:       {name:'木材',    w:2, sell:3,   col:'#8B6914',rare:0},
+  rope:       {name:'ロープ',  w:1, sell:5,   col:'#DEB887',rare:0,use:1},
+  bomb:       {name:'爆弾',    w:2, sell:0,   col:'#FF4500',rare:0,use:1},
+  heal:       {name:'回復薬',  w:1, sell:0,   col:'#FF69B4',rare:0,use:1},
+  battery:    {name:'電池',    w:1, sell:0,   col:'#FFD700',rare:0,use:1},
+  oxygen:     {name:'酸素ボンベ',w:2,sell:0,  col:'#87CEEB',rare:0,use:1},
+  beacon:     {name:'帰還ビーコン',w:1,sell:0,col:'#FF00FF',rare:0,use:1},
+  map_piece:  {name:'地図の欠片',w:0,sell:300,col:'#FFFF00',rare:1},
+  dkey:       {name:'地下鍵',  w:0, sell:0,   col:'#FFD700',rare:1},
+  bkey:       {name:'ボスキー',w:0, sell:0,   col:'#FF0000',rare:1},
+  ladder:     {name:'はしご',  w:1, sell:2,   col:'#A0522D',rare:0,use:1},
+};
+
+// shared game state (persists across days)
+const GS={
+  day:1, gold:50, maxDay:30,
+  baseLevel:{sell:0,storage:0,lift:0,autoMine:0,autoSell:0},
+  trophies:[],
+  mapPieces:0,
+  mechParts:0,
+  bossDefeated:false,
+  deepestReached:0,
+  questsDone:0,
+  totalEarned:0,
+};
+
+// ================================================================
+// SEEDED RNG (mulberry32)
+// ================================================================
+function mkRNG(seed){
+  let s=seed|0;
+  return function(){
+    s=(s+0x6d2b79f5)|0;
+    let t=Math.imul(s^(s>>>15),1|s);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+
+// ================================================================
+// MAP GENERATOR
+// ================================================================
+function generateMap(seed){
+  const rng=mkRNG(seed);
+  const map=[];
+  for(let y=0;y<MH;y++){map[y]=new Uint8Array(MW);}
+
+  function set(x,y,t){if(x>=0&&x<MW&&y>=0&&y<MH)map[y][x]=t;}
+  function get(x,y){if(x<0||x>=MW||y<0||y>=MH)return T.BEDROCK;return map[y][x];}
+
+  // Fill based on biome
+  for(let y=0;y<MH;y++){
+    for(let x=0;x<MW;x++){
+      const b=getBiome(y);
+      if(y<BIOMES[0].y1){
+        // surface: air above grass
+        map[y][x]=y<BIOMES[0].y1-1?T.AIR:T.GRASS;
+      } else {
+        map[y][x]=biomeBaseBlock(b,y,rng);
+      }
+    }
+  }
+
+  // Bedrock border
+  for(let y=0;y<MH;y++){
+    map[y][0]=T.BEDROCK; map[y][MW-1]=T.BEDROCK;
+  }
+  for(let x=0;x<MW;x++){
+    map[MH-1][x]=T.BEDROCK; map[MH-2][x]=T.BEDROCK;
+  }
+
+  // Carve caves
+  for(let c=0;c<25;c++){
+    let cx=Math.floor(rng()*MW*0.8)+4;
+    let cy=Math.floor(rng()*(MH-40))+20;
+    const steps=40+Math.floor(rng()*80);
+    for(let s=0;s<steps;s++){
+      const r=Math.floor(rng()*2)+1;
+      for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+        const t=get(cx+dx,cy+dy);
+        if(t!==T.BEDROCK&&t!==T.LAVA&&t!==T.WATER){set(cx+dx,cy+dy,T.AIR);}
+      }
+      const d=rng();
+      if(d<.25)cx=Math.max(2,cx-1);
+      else if(d<.5)cx=Math.min(MW-3,cx+1);
+      else if(d<.75)cy=Math.max(12,cy-1);
+      else cy=Math.min(MH-5,cy+1);
+    }
+  }
+
+  // Place ores per biome
+  placeOres(map,rng);
+
+  // Place chests
+  for(let i=0;i<40;i++){
+    const x=2+Math.floor(rng()*(MW-4));
+    const y=15+Math.floor(rng()*(MH-20));
+    if(get(x,y)===T.AIR&&get(x,y+1)!==T.AIR){set(x,y,T.CHEST);}
+  }
+
+  // Place switches+doors (co-op gimmick)
+  for(let i=0;i<8;i++){
+    const x=10+Math.floor(rng()*(MW-20));
+    const y=30+Math.floor(rng()*(MH-50));
+    if(get(x,y)===T.AIR&&get(x,y+1)!==T.AIR){
+      set(x,y,T.SW_OFF);
+      // door nearby
+      const dx2=x+(rng()>0.5?5:-5);
+      for(let ddy=0;ddy<8;ddy++){set(dx2,y+ddy,T.DOOR_C);}
+    }
+  }
+
+  // Underground lake biome: fill with water
+  const lb=BIOMES[5];
+  for(let y=lb.y0+5;y<lb.y1-5;y++){
+    for(let x=2;x<MW-2;x++){
+      if(get(x,y)===T.AIR&&y>lb.y0+10){set(x,y,T.WATER);}
+    }
+  }
+
+  // Lava in magma biome
+  const mb=BIOMES[7];
+  for(let y=mb.y1-8;y<mb.y1-2;y++){
+    for(let x=2;x<MW-2;x++){set(x,y,T.LAVA);}
+  }
+  // Lava pools
+  for(let i=0;i<15;i++){
+    const x=5+Math.floor(rng()*(MW-10));
+    const y=mb.y0+Math.floor(rng()*(mb.y1-mb.y0-10));
+    if(get(x,y)===T.AIR){
+      for(let dy=0;dy<3;dy++)for(let dx=-2;dx<=2;dx++)set(x+dx,y+dy,T.LAVA);
+    }
+  }
+
+  // Gas pockets
+  for(let i=0;i<20;i++){
+    const x=5+Math.floor(rng()*(MW-10));
+    const y=50+Math.floor(rng()*(150));
+    if(get(x,y)===T.AIR){
+      for(let dy=0;dy<4;dy++)for(let dx=-3;dx<=3;dx++){
+        if(get(x+dx,y+dy)===T.AIR)set(x+dx,y+dy,T.GAS);
+      }
+    }
+  }
+
+  // Ancient ruin structures
+  const arb=BIOMES[6];
+  for(let i=0;i<6;i++){
+    const rx=5+Math.floor(rng()*(MW-10));
+    const ry=arb.y0+5+Math.floor(rng()*(arb.y1-arb.y0-10));
+    buildRuin(map,rx,ry,rng,set,get);
+  }
+
+  // Stalactites
+  for(let y=20;y<200;y++){
+    for(let x=2;x<MW-2;x++){
+      if(get(x,y)!==T.AIR&&get(x,y+1)===T.AIR&&rng()<.06){
+        for(let dy=1;dy<=Math.floor(rng()*4)+1;dy++){
+          if(get(x,y+dy)===T.AIR)set(x,y+dy,T.STALA);else break;
+        }
+      }
+    }
+  }
+
+  // Mushrooms in deep areas
+  for(let y=160;y<260;y++){
+    for(let x=2;x<MW-2;x++){
+      if(get(x,y)===T.AIR&&get(x,y+1)!==T.AIR&&rng()<.03)set(x,y,T.MUSHROOM);
+    }
+  }
+
+  // Surface structures (left side surface)
+  buildSurface(map,set,get);
+
+  // Elevator shaft (center)
+  const elevX=Math.floor(MW/2);
+  for(let y=BIOMES[0].y1;y<MH-3;y++){set(elevX,y,T.ELEV);}
+
+  return map;
+}
+
+function getBiome(y){
+  for(let i=BIOMES.length-1;i>=0;i--){
+    if(y>=BIOMES[i].y0)return BIOMES[i];
+  }
+  return BIOMES[0];
+}
+
+function biomeBaseBlock(biome,y,rng){
+  const n=biome.name;
+  if(n==='浅い土')return rng()<.05?T.COPPER:T.DIRT;
+  if(n==='岩盤層')return rng()<.02?T.COPPER:(rng()<.02?T.IRON:T.STONE);
+  if(n==='鉱山層')return rng()<.03?T.IRON:(rng()<.015?T.GOLD:T.STONE);
+  if(n==='化石層')return rng()<.04?T.FOSSIL:(rng()<.01?T.GOLD:T.HARD);
+  if(n==='地下湖')return T.STONE;
+  if(n==='古代遺跡')return rng()<.02?T.ANCIENT:T.ANWALL;
+  if(n==='マグマ層')return rng()<.02?T.MAGMASTONE:(rng()<.01?T.GEM:T.HARD);
+  if(n==='最深部')return rng()<.015?T.DEEPCRYSTAL:(rng()<.01?T.MACHINE:(rng()<.005?T.UNK_ORE:T.HARD));
+  return T.STONE;
+}
+
+function placeOres(map,rng){
+  const oreTable=[
+    {tile:T.COPPER, ymin:10,ymax:80,  chance:.06},
+    {tile:T.IRON,   ymin:40,ymax:130, chance:.04},
+    {tile:T.GOLD,   ymin:80,ymax:200, chance:.02},
+    {tile:T.GEM,    ymin:120,ymax:280,chance:.015},
+    {tile:T.FOSSIL, ymin:130,ymax:180,chance:.05},
+    {tile:T.CRYSTAL,ymin:160,ymax:220,chance:.03},
+    {tile:T.ANCIENT,ymin:190,ymax:230,chance:.02},
+    {tile:T.MACHINE,ymin:240,ymax:300,chance:.015},
+    {tile:T.UNK_ORE,ymin:270,ymax:315,chance:.008},
+    {tile:T.DEEPCRYSTAL,ymin:260,ymax:315,chance:.01},
+    {tile:T.MAGMASTONE,ymin:220,ymax:260,chance:.04},
+  ];
+  for(const ore of oreTable){
+    for(let y=ore.ymin;y<ore.ymax;y++){
+      for(let x=1;x<MW-1;x++){
+        if(map[y][x]===T.STONE||map[y][x]===T.HARD||map[y][x]===T.DIRT){
+          if(rng()<ore.chance){
+            // place vein 1-4 tiles
+            const vs=1+Math.floor(rng()*3);
+            for(let i=0;i<vs;i++){
+              const ox=x+Math.floor(rng()*3)-1;
+              const oy=y+Math.floor(rng()*3)-1;
+              if(ox>0&&ox<MW-1&&oy>0&&oy<MH-1){
+                const bt=map[oy][ox];
+                if(bt===T.STONE||bt===T.HARD||bt===T.DIRT)map[oy][ox]=ore.tile;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function buildRuin(map,rx,ry,rng,set,get){
+  const w=6+Math.floor(rng()*6), h=4+Math.floor(rng()*4);
+  // walls
+  for(let dy=0;dy<h;dy++){
+    set(rx,ry+dy,T.ANWALL); set(rx+w,ry+dy,T.ANWALL);
+  }
+  for(let dx=0;dx<=w;dx++){
+    set(rx+dx,ry,T.ANWALL); set(rx+dx,ry+h,T.ANWALL);
+  }
+  // hollow inside
+  for(let dy=1;dy<h;dy++)for(let dx=1;dx<w;dx++)set(rx+dx,ry+dy,T.AIR);
+  // door opening
+  set(rx+Math.floor(w/2),ry+h,T.AIR);
+  // machine parts or ancient items inside
+  for(let i=0;i<3;i++){
+    const ix=rx+1+Math.floor(rng()*(w-1));
+    const iy=ry+1+Math.floor(rng()*(h-1));
+    set(ix,iy,rng()<.5?T.ANCIENT:T.MACHINE);
+  }
+}
+
+function buildSurface(map,set,get){
+  const sy=BIOMES[0].y1-1; // grass level
+  // Clear surface area
+  for(let y=0;y<sy;y++)for(let x=2;x<MW-2;x++)map[y][x]=T.AIR;
+  for(let x=2;x<MW-2;x++)map[sy][x]=T.GRASS;
+
+  // Ground floor
+  for(let x=2;x<MW-2;x++){
+    map[sy+1][x]=T.DIRT; map[sy+2][x]=T.DIRT;
+  }
+
+  // Buildings (all at grass level)
+  // House (x=4)
+  buildBuilding(map,set,4,sy-3,5,3,T.PLATFORM);
+  // Sell shop (x=12)
+  buildBuilding(map,set,12,sy-3,5,3,T.PLATFORM);
+  // Upgrade shop (x=20)
+  buildBuilding(map,set,20,sy-3,5,3,T.PLATFORM);
+  // Warehouse (x=28)
+  buildBuilding(map,set,28,sy-3,6,3,T.PLATFORM);
+  // Craft table (x=37)
+  buildBuilding(map,set,37,sy-3,5,3,T.PLATFORM);
+  // Quest board (x=45)
+  buildBuilding(map,set,45,sy-3,4,3,T.PLATFORM);
+  // Generator (x=53)
+  buildBuilding(map,set,53,sy-2,3,2,T.PLATFORM);
+  // Oxygen station (x=59)
+  buildBuilding(map,set,59,sy-2,3,2,T.PLATFORM);
+}
+
+function buildBuilding(map,set,x,y,w,h,wallTile){
+  for(let dy=0;dy<h;dy++){
+    set(x,y+dy,wallTile); set(x+w-1,y+dy,wallTile);
+    for(let dx=1;dx<w-1;dx++)set(x+dx,y+dy,T.AIR);
+  }
+  for(let dx=0;dx<w;dx++){set(x+dx,y,wallTile); set(x+dx,y+h-1,wallTile);}
+  // door at bottom center
+  set(x+Math.floor(w/2),y+h-1,T.AIR);
+}
+
+// ================================================================
+// VIRTUAL PAD (mobile)
+// ================================================================
+class VirtualPad{
+  constructor(scene,x,y,playerId){
+    this.scene=scene; this.pid=playerId;
+    this.dx=0; this.dy=0; this.dig=false; this.ret=false;
+    this.pointers=new Map();
+    this.bx=x; this.by=y; // base position
+
+    const g=scene.add.graphics().setScrollFactor(0).setDepth(200);
+    this.gfx=g;
+
+    // D-pad base
+    const dpr=50;
+    g.fillStyle(0xffffff,0.2); g.fillCircle(x,y,dpr);
+    this.dpX=x; this.dpY=y; this.dpR=dpr;
+
+    // Action buttons
+    const W=scene.scale.width, H=scene.scale.height;
+    const bx2=W-60, by2=y;
+    this.digBtn={x:bx2-50,y:by2+10,r:35};
+    this.retBtn={x:bx2+10,y:by2-40,r:28};
+
+    g.fillStyle(0xFF4444,0.5); g.fillCircle(this.digBtn.x,this.digBtn.y,35);
+    g.fillStyle(0x4444FF,0.4); g.fillCircle(this.retBtn.x,this.retBtn.y,28);
+
+    // labels
+    scene.add.text(this.digBtn.x,this.digBtn.y,'⛏',{fontSize:'20px'})
+      .setOrigin(.5).setScrollFactor(0).setDepth(201);
+    scene.add.text(this.retBtn.x,this.retBtn.y,'🏠',{fontSize:'16px'})
+      .setOrigin(.5).setScrollFactor(0).setDepth(201);
+
+    // touch listeners
+    scene.input.on('pointerdown',this._down,this);
+    scene.input.on('pointermove',this._move,this);
+    scene.input.on('pointerup',this._up,this);
+  }
+  _down(p){
+    const {x,y}=p;
+    if(this._inDp(x,y)){this.pointers.set(p.id,{type:'dp',x,y});this._updateDp(x,y);}
+    else if(this._inBtn(x,y,this.digBtn)){this.dig=true;this.pointers.set(p.id,{type:'dig'});}
+    else if(this._inBtn(x,y,this.retBtn)){this.ret=true;this.pointers.set(p.id,{type:'ret'});}
+  }
+  _move(p){
+    const t=this.pointers.get(p.id);
+    if(t&&t.type==='dp'){t.x=p.x;t.y=p.y;this._updateDp(p.x,p.y);}
+  }
+  _up(p){
+    const t=this.pointers.get(p.id);
+    if(t){
+      if(t.type==='dp'){this.dx=0;this.dy=0;}
+      else if(t.type==='dig')this.dig=false;
+      else if(t.type==='ret')this.ret=false;
+      this.pointers.delete(p.id);
+    }
+  }
+  _inDp(x,y){return Math.hypot(x-this.dpX,y-this.dpY)<this.dpR+20;}
+  _inBtn(x,y,b){return Math.hypot(x-b.x,y-b.y)<b.r+10;}
+  _updateDp(x,y){
+    const dx=x-this.dpX, dy=y-this.dpY;
+    const d=Math.hypot(dx,dy);
+    if(d<5){this.dx=0;this.dy=0;return;}
+    const nx=dx/d, ny=dy/d;
+    this.dx=Math.abs(nx)>.3?Math.sign(nx):0;
+    this.dy=Math.abs(ny)>.4?Math.sign(ny):0;
+  }
+  destroy(){
+    this.scene.input.off('pointerdown',this._down,this);
+    this.scene.input.off('pointermove',this._move,this);
+    this.scene.input.off('pointerup',this._up,this);
+    this.gfx.destroy();
+  }
+}
+
+// ================================================================
+// PLAYER CLASS
+// ================================================================
+class Player{
+  constructor(scene,x,y,id){
+    this.scene=scene; this.id=id;
+    this.hp=100; this.maxHp=100;
+    this.stamina=100; this.maxStamina=100;
+    this.oxygen=100; this.maxOxygen=100;
+    this.battery=100; this.maxBattery=100;
+    this.weight=0; this.maxWeight=30;
+    this.mineSpeed=1; this.moveSpeed=160;
+    this.lightRange=180;
+    this.inventory={}; // item->count
+    this.gold=0;
+    this.downed=false; this.downTimer=0;
+    this.rescueTimer=0;
+    this.tool='pickaxe'; // pickaxe|drill|bomb
+    this.mineTarget=null; this.mineProgress=0;
+    this.onGround=false;
+    this.facingRight=id===0;
+    this.upgrades={hp:0,stamina:0,weight:0,speed:0,light:0,pickaxe:0,drill:0,bomb:0,range:0};
+    this.deepest=0;
+    this.activeItem=null;
+
+    // プレイヤースプライト (アセット画像 or フォールバック)
+    const texKey = scene.textures.exists('player_idle') ? 'player_idle' : null;
+    if(texKey){
+      this.sprite = scene.physics.add.sprite(x, y, 'player_idle');
+      // P2は色合いを変える
+      if(id===1) this.sprite.setTint(0xFF9966);
+      this.sprite.setScale(0.28);
+    } else {
+      const col=id===0?0x4488FF:0xFF6644;
+      const g=scene.add.graphics();
+      g.fillStyle(col);g.fillRect(0,0,24,28);
+      g.fillStyle(0xFFFFFF);g.fillRect(id===0?14:2,4,8,8);
+      g.fillStyle(0x000000);g.fillRect(id===0?16:4,6,4,4);
+      g.generateTexture('p'+id,24,28);g.destroy();
+      this.sprite=scene.physics.add.sprite(x,y,'p'+id);
+    }
+    this.sprite.setCollideWorldBounds(false);
+    this.sprite.body.setSize(24,28);
+    this.sprite.setDepth(10);
+
+    // アニメーション状態
+    this._animState='idle'; this._animTimer=0; this._animFrame=0;
+    this._walkFrames=['player_walk1','player_walk2','player_walk3','player_walk4'];
+    this._digFrames=['player_dig1','player_dig2','player_dig3','player_dig4'];
+    this._jumpFrames=['player_jump1','player_jump2','player_jump3'];
+    this._downFrames=['player_down1'];
+    this._pickFrames=['player_pick1','player_pick2','player_pick3'];
+
+    // Name tag
+    this.nameTag=scene.add.text(x,y-20,id===0?'P1':'P2',
+      {fontSize:'10px',color:id===0?'#88AAFF':'#FF8866',backgroundColor:'#000000AA',padding:{x:2,y:1}})
+      .setOrigin(.5).setDepth(11);
+
+    this.digAnim=0; // mining animation timer
+  }
+
+  addItem(id,qty){
+    const def=ITEMS[id]; if(!def)return false;
+    const add=Math.min(qty,Math.floor((this.maxWeight-this.weight)/def.w));
+    if(add<=0)return false;
+    this.inventory[id]=(this.inventory[id]||0)+add;
+    this.weight+=add*def.w;
+    return true;
+  }
+
+  removeItem(id,qty=1){
+    if(!this.inventory[id]||this.inventory[id]<qty)return false;
+    this.inventory[id]-=qty;
+    if(this.inventory[id]<=0)delete this.inventory[id];
+    this.weight-=qty*(ITEMS[id]?.w||0);
+    if(this.weight<0)this.weight=0;
+    return true;
+  }
+
+  sellAll(){
+    let earned=0;
+    const mult=1+GS.baseLevel.sell*0.1;
+    for(const[k,v]of Object.entries(this.inventory)){
+      if(ITEMS[k]&&ITEMS[k].sell>0){
+        earned+=Math.floor(v*ITEMS[k].sell*mult);
+        delete this.inventory[k];
+      }
+    }
+    this.weight=Object.entries(this.inventory).reduce((s,[k,v])=>s+(ITEMS[k]?.w||0)*v,0);
+    GS.gold+=earned; GS.totalEarned+=earned;
+    return earned;
+  }
+
+  totalWeight(){
+    return Object.entries(this.inventory).reduce((s,[k,v])=>s+(ITEMS[k]?.w||0)*v,0);
+  }
+
+  update(dt,keys,pad,map){
+    if(this.downed){this._updateDowned(dt,map);return;}
+
+    const spd=this.moveSpeed*(this.downed?0:1);
+    let vx=0,vy=this.sprite.body.velocity.y;
+
+    // Input
+    const left =keys.left  ||(pad&&pad.dx<0);
+    const right=keys.right ||(pad&&pad.dx>0);
+    const up   =keys.up    ||(pad&&pad.dy<0);
+    const dig  =keys.dig   ||(pad&&pad.dig);
+    const ret  =keys.ret   ||(pad&&pad.ret);
+
+    if(left){vx=-spd;this.facingRight=false;}
+    else if(right){vx=spd;this.facingRight=true;}
+
+    // Jump
+    if(up&&this.onGround){vy=-460;}
+
+    // On ladder/rope
+    const tx=Math.floor(this.sprite.x/TS),ty=Math.floor(this.sprite.y/TS);
+    const onLadder=map[ty]&&(map[ty][tx]===T.LADDER||map[ty][tx]===T.ROPE||map[ty][tx]===T.ELEV);
+    if(onLadder){
+      if(keys.up||(pad&&pad.dy<0))vy=-120;
+      else if(keys.down||(pad&&pad.dy>0))vy=120;
+      else vy=Math.max(0,vy);
+      this.sprite.body.allowGravity=false;
+    } else {
+      this.sprite.body.allowGravity=true;
+    }
+
+    this.sprite.setVelocity(vx,vy);
+    this.onGround=this.sprite.body.blocked.down;
+
+    // Mining
+    if(dig){this._doMine(dt,map,keys,pad);}
+    else{this.mineTarget=null;this.mineProgress=0;}
+
+    // Return beacon
+    if(ret&&this.inventory.beacon>0){
+      this.removeItem('beacon');
+      this.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);
+    }
+
+    // Oxygen (when in water)
+    const inWater=map[ty]&&map[ty][tx]===T.WATER;
+    if(inWater){
+      this.oxygen=Math.max(0,this.oxygen-dt*8);
+      if(this.oxygen<=0){this.hp=Math.max(0,this.hp-dt*15);}
+    } else if(this.sprite.y/TS<BIOMES[0].y1+2){
+      this.oxygen=Math.min(this.maxOxygen,this.oxygen+dt*20);
+    } else {
+      this.oxygen=Math.max(0,this.oxygen-dt*1.5);
+      if(this.oxygen<=0)this.hp=Math.max(0,this.hp-dt*8);
+      // Use oxygen tank if available
+      if(this.oxygen<5&&this.inventory.oxygen>0){this.removeItem('oxygen');this.oxygen=this.maxOxygen;}
+    }
+
+    // Battery
+    this.battery=Math.max(0,this.battery-dt*1);
+    if(this.battery<=0)this.lightRange=60;
+    else this.lightRange=180+this.upgrades.light*40;
+    if(this.battery<5&&this.inventory.battery>0){this.removeItem('battery');this.battery=this.maxBattery;}
+
+    // Lava damage
+    if(map[ty]&&map[ty][tx]===T.LAVA){this.hp=Math.max(0,this.hp-dt*30);}
+    // Gas damage
+    if(map[ty]&&map[ty][tx]===T.GAS){this.hp=Math.max(0,this.hp-dt*5);}
+
+    // Downed?
+    if(this.hp<=0){this.hp=0;this.downed=true;this.downTimer=15;}
+
+    // Deepest
+    const depth=Math.max(0,Math.floor(this.sprite.y/TS)-BIOMES[0].y1);
+    if(depth>this.deepest)this.deepest=depth;
+    if(depth>GS.deepestReached)GS.deepestReached=depth;
+
+    // Stamina regen
+    if(!dig)this.stamina=Math.min(this.maxStamina,this.stamina+dt*12);
+
+    // Name tag follow
+    this.nameTag.setPosition(this.sprite.x,this.sprite.y-22);
+
+    // スプライトアニメーション更新
+    this._updateAnim(dt, dig, left||right, !this.onGround);
+
+    // 向き反転
+    this.sprite.setFlipX(!this.facingRight);
+  }
+
+  _updateAnim(dt, digging, moving, inAir){
+    if(!this.scene.textures.exists('player_idle')) return;
+    this._animTimer+=dt;
+    const FPS=8, interval=1/FPS;
+
+    let frames, newState;
+    if(this.downed){ newState='down'; frames=this._downFrames; }
+    else if(digging&&this.mineTarget){ newState='dig'; frames=this._digFrames; }
+    else if(inAir){ newState='jump'; frames=this._jumpFrames; }
+    else if(moving){ newState='walk'; frames=this._walkFrames; }
+    else { newState='idle'; frames=['player_idle']; }
+
+    if(newState!==this._animState){ this._animState=newState; this._animFrame=0; this._animTimer=0; }
+    if(this._animTimer>=interval){
+      this._animTimer=0;
+      this._animFrame=(this._animFrame+1)%frames.length;
+    }
+    const key=frames[this._animFrame];
+    if(this.scene.textures.exists(key)) this.sprite.setTexture(key);
+  }
+
+  _updateDowned(dt,map){
+    this.downTimer-=dt;
+    this.sprite.setTint(0xFF0000);
+    if(this.downTimer<=0){
+      // Dead - respawn at surface with penalty
+      this.hp=30; this.downed=false;
+      this.sprite.clearTint();
+      this.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);
+      // lose 30% gold
+      GS.gold=Math.floor(GS.gold*0.7);
+      this.scene.showMsg(this.id===0?'P1':'P2'+' が力尽きた！ゴールド-30%',0xFF4444);
+    }
+  }
+
+  _doMine(dt,map,keys,pad){
+    // Find target tile
+    const px=this.sprite.x, py=this.sprite.y;
+    const facX=this.facingRight?1:-1;
+    // Check down preference then facing
+    const candidates=[
+      {x:Math.floor(px/TS)+facX, y:Math.floor(py/TS)},
+      {x:Math.floor(px/TS)+facX, y:Math.floor(py/TS)+1},
+      {x:Math.floor(px/TS),      y:Math.floor(py/TS)+1},
+      {x:Math.floor(px/TS)+facX, y:Math.floor(py/TS)-1},
+    ];
+
+    // Use keyboard direction to pick target
+    if(keys.down||(pad&&pad.dy>0)){
+      candidates.unshift({x:Math.floor(px/TS),y:Math.floor(py/TS)+1});
+    }
+    if(keys.up||(pad&&pad.dy<0)){
+      candidates.unshift({x:Math.floor(px/TS),y:Math.floor(py/TS)-1});
+    }
+
+    let tgt=null;
+    for(const c of candidates){
+      const b=map[c.y]?.[c.x];
+      if(b!==undefined&&b!==T.AIR&&b!==T.BEDROCK&&b!==T.WATER&&b!==T.LAVA&&b!==T.GAS&&b!==T.DOOR_C&&b!==T.ELEV){
+        if(b===T.DOOR_C)continue;
+        tgt=c; break;
+      }
+    }
+
+    if(!tgt){this.mineTarget=null;this.mineProgress=0;return;}
+    if(!this.mineTarget||this.mineTarget.x!==tgt.x||this.mineTarget.y!==tgt.y){
+      this.mineTarget=tgt; this.mineProgress=0;
+    }
+
+    if(this.stamina<1)return;
+    const bl=map[tgt.y][tgt.x];
+    const def=BD[bl];
+    if(!def||def.h===0)return;
+
+    const power=this.mineSpeed*(1+this.upgrades.pickaxe*0.25);
+    this.mineProgress+=dt*power;
+    this.stamina=Math.max(0,this.stamina-dt*8);
+
+    if(this.mineProgress>=def.h){
+      // Break block
+      map[tgt.y][tgt.x]=T.AIR;
+      this.scene.onBlockBroken(tgt.x,tgt.y,bl,this);
+      this.mineTarget=null; this.mineProgress=0;
+      // Check for co-op switch
+      if(bl===T.SW_OFF){
+        map[tgt.y][tgt.x]=T.SW_ON;
+        this.scene.activateSwitch(tgt.x,tgt.y);
+      }
+    }
+  }
+
+  useBomb(map){
+    if(!this.inventory.bomb||this.inventory.bomb<=0)return;
+    this.removeItem('bomb');
+    const px=Math.floor(this.sprite.x/TS)+(this.facingRight?2:-2);
+    const py=Math.floor(this.sprite.y/TS);
+    const r=2+this.upgrades.bomb;
+    for(let dy=-r;dy<=r;dy++){
+      for(let dx=-r;dx<=r;dx++){
+        if(Math.hypot(dx,dy)<=r){
+          const bx=px+dx,by=py+dy;
+          const b=map[by]?.[bx];
+          if(b!==undefined&&b!==T.BEDROCK&&b!==T.AIR){
+            const def=BD[b]; if(def&&def.drop){this.addItem(def.drop,1);}
+            map[by][bx]=T.AIR;
+            if(this.scene.layer)this.scene.layer.putTileAt(T.AIR,bx,by);
+          }
+        }
+      }
+    }
+    this.scene.cameras.main.shake(300,0.01);
+    this.scene.showMsg('💥 爆発！',0xFF8800);
+  }
+
+  placeRope(map){
+    if(!this.inventory.rope||this.inventory.rope<=0)return;
+    const tx=Math.floor(this.sprite.x/TS);
+    const ty=Math.floor(this.sprite.y/TS)-1;
+    if(map[ty]&&map[ty][tx]===T.AIR){
+      map[ty][tx]=T.ROPE;
+      if(this.scene.layer)this.scene.layer.putTileAt(T.ROPE,tx,ty);
+      this.removeItem('rope');
+      this.scene.showMsg('🪢 ロープ設置',0xDEB887);
+    }
+  }
+
+  heal(){
+    if(!this.inventory.heal||this.inventory.heal<=0)return;
+    this.removeItem('heal');
+    this.hp=Math.min(this.maxHp,this.hp+50);
+    this.scene.showMsg((this.id===0?'P1':'P2')+' 回復！',0x44FF44);
+  }
+
+  rescue(other){
+    if(!other.downed)return;
+    const dist=Math.hypot(this.sprite.x-other.sprite.x,this.sprite.y-other.sprite.y);
+    if(dist<60){
+      other.hp=40; other.downed=false; other.sprite.clearTint();
+      this.scene.showMsg('🤝 救助成功！',0x44FF44);
+    }
+  }
+
+  applyUpgrade(type){
+    const cost=this._upgCost(type);
+    if(GS.gold<cost)return false;
+    GS.gold-=cost;
+    this.upgrades[type]++;
+    switch(type){
+      case 'hp':    this.maxHp    =100+this.upgrades.hp*20;   this.hp=this.maxHp;break;
+      case 'stamina':this.maxStamina=100+this.upgrades.stamina*20;break;
+      case 'weight':this.maxWeight =30 +this.upgrades.weight*10;  break;
+      case 'speed': this.moveSpeed =160+this.upgrades.speed*20;   break;
+      case 'light': this.lightRange=180+this.upgrades.light*40;   break;
+      case 'pickaxe':this.mineSpeed=1  +this.upgrades.pickaxe*0.25;break;
+    }
+    return true;
+  }
+
+  _upgCost(type){
+    const base={hp:30,stamina:25,weight:20,speed:40,light:35,pickaxe:50,drill:80,bomb:30,range:45};
+    return Math.floor((base[type]||30)*Math.pow(1.8,this.upgrades[type]||0));
+  }
+}
+
+// ================================================================
+// ENEMY CLASS
+// ================================================================
+class Enemy{
+  constructor(scene,x,y,type){
+    this.scene=scene; this.type=type;
+    const cfg=ENEMY_CFG[type]||ENEMY_CFG.worm;
+    this.hp=cfg.hp; this.maxHp=cfg.hp;
+    this.dmg=cfg.dmg; this.speed=cfg.speed;
+    this.state='patrol'; this.stateTimer=0;
+    this.dir=1; this.onGround=false;
+    this.dead=false;
+
+    // 敵スプライト (画像優先、なければフォールバック)
+    const eKey='enemy_'+type;
+    if(scene.textures.exists(eKey)){
+      this.sprite=scene.physics.add.sprite(x,y,eKey);
+      const scale={worm:.18,bat:.18,slime:.16,golem:.22,plant:.2,mushroom:.18,arobot:.2,giant_worm:.25,boss:.28}[type]||.18;
+      this.sprite.setScale(scale);
+    } else {
+      const g=scene.add.graphics();
+      g.fillStyle(cfg.col); g.fillCircle(12,12,12);
+      g.generateTexture('e_'+type,24,24); g.destroy();
+      this.sprite=scene.physics.add.sprite(x,y,'e_'+type);
+    }
+    this.sprite.setDepth(8);
+    this.sprite.body.setSize(22,22);
+  }
+
+  update(dt,players,map){
+    if(this.dead)return;
+    this.stateTimer-=dt;
+
+    // Find nearest player
+    let nearest=null, nearDist=9999;
+    for(const p of players){
+      if(p.downed)continue;
+      const d=Math.hypot(p.sprite.x-this.sprite.x,p.sprite.y-this.sprite.y);
+      if(d<nearDist){nearDist=d;nearest=p;}
+    }
+
+    if(nearDist<200&&nearest){
+      this.state='chase';
+      const dx=nearest.sprite.x-this.sprite.x;
+      this.sprite.setVelocityX(Math.sign(dx)*this.speed);
+      if(nearDist<30){
+        // attack
+        if(this.stateTimer<=0){
+          nearest.hp=Math.max(0,nearest.hp-this.dmg);
+          this.stateTimer=1;
+          if(nearest.hp<=0)nearest.downed=true;
+        }
+      }
+    } else {
+      this.state='patrol';
+      if(this.stateTimer<=0){this.dir*=-1;this.stateTimer=2+Math.random()*2;}
+      this.sprite.setVelocityX(this.dir*this.speed*0.5);
+    }
+
+    this.onGround=this.sprite.body.blocked.down;
+    if(this.onGround&&this.state==='patrol'&&Math.random()<0.01){
+      this.sprite.setVelocityY(-200);
+    }
+  }
+
+  takeDamage(dmg){
+    this.hp-=dmg;
+    if(this.hp<=0){this.dead=true;this.sprite.destroy();}
+  }
+}
+
+const ENEMY_CFG={
+  worm:   {hp:20,  dmg:8,  speed:60,  col:0x8B4513, drop:'stone'},
+  bat:    {hp:15,  dmg:6,  speed:100, col:0x333333, drop:null},
+  slime:  {hp:30,  dmg:10, speed:50,  col:0x44BB44, drop:'crystal'},
+  golem:  {hp:80,  dmg:20, speed:40,  col:0x808080, drop:'iron'},
+  plant:  {hp:25,  dmg:12, speed:30,  col:0x226622, drop:'ancient'},
+  arobot: {hp:100, dmg:25, speed:60,  col:0x4444AA, drop:'machine'},
+};
+
+// ================================================================
+// QUEST SYSTEM
+// ================================================================
+const QUEST_POOL=[
+  {id:'earn500',  text:'500G稼ぐ',           check:(gs,ps)=>gs.totalEarned-gs._qStart.earn>=500,   reward:100},
+  {id:'earn2000', text:'2000G稼ぐ',          check:(gs,ps)=>gs.totalEarned-gs._qStart.earn>=2000,  reward:500},
+  {id:'copper5',  text:'銅を5個集める',       check:(gs,ps)=>ps.some(p=>(p.inventory.copper||0)>=5),reward:60},
+  {id:'iron3',    text:'鉄を3個集める',       check:(gs,ps)=>ps.some(p=>(p.inventory.iron||0)>=3), reward:150},
+  {id:'gold1',    text:'金を1個持ち帰る',     check:(gs,ps)=>ps.some(p=>(p.inventory.gold||0)>=1), reward:200},
+  {id:'gem1',     text:'宝石を発見する',      check:(gs,ps)=>ps.some(p=>(p.inventory.gem||0)>=1),  reward:500},
+  {id:'depth50',  text:'深さ50mに到達',       check:(gs,ps)=>gs.deepestReached>=50,                reward:150},
+  {id:'depth120', text:'深さ120mに到達',      check:(gs,ps)=>gs.deepestReached>=120,               reward:400},
+  {id:'rescue',   text:'仲間を救助する',      check:(gs,ps)=>gs._rescueDone||false,                reward:200},
+  {id:'fossil2',  text:'化石を2つ集める',     check:(gs,ps)=>ps.some(p=>(p.inventory.fossil||0)>=2),reward:300},
+  {id:'ancient1', text:'古代品を発見',        check:(gs,ps)=>ps.some(p=>(p.inventory.ancient||0)>=1),reward:800},
+];
+
+function pickQuests(n=3){
+  const pool=[...QUEST_POOL];
+  const out=[];
+  for(let i=0;i<n&&pool.length;i++){
+    const idx=Math.floor(Math.random()*pool.length);
+    out.push({...pool[idx],done:false});
+    pool.splice(idx,1);
+  }
+  return out;
+}
+
+// ================================================================
+// SCENE: BOOT
+// ================================================================
+class BootScene extends Phaser.Scene{
+  constructor(){super('Boot');}
+  preload(){
+    // 全アセット読み込み（404は黙って無視）
+    this.load.on('loaderror', ()=>{});
+    for(const[k,v]of Object.entries(ASSETS)){
+      this.load.image(k, v);
+    }
+  }
+  create(){
+    this._makeTiles();
+    this.scene.start('Title');
+  }
+  _makeTiles(){
+    const c=document.createElement('canvas');
+    c.width=TS*NUM_T; c.height=TS;
+    const ctx=c.getContext('2d');
+    for(let i=0;i<NUM_T;i++){
+      const def=BD[i];
+      if(!def){ctx.clearRect(i*TS,0,TS,TS);continue;}
+      const alpha=def.a!==undefined?def.a:1;
+      ctx.globalAlpha=alpha;
+      ctx.fillStyle=def.col||'#000';
+      ctx.fillRect(i*TS,0,TS,TS);
+      ctx.globalAlpha=1;
+
+      // Details
+      if(def.col&&alpha>0){
+        // border
+        ctx.strokeStyle='rgba(0,0,0,0.3)';
+        ctx.lineWidth=1;
+        ctx.strokeRect(i*TS+.5,0+.5,TS-1,TS-1);
+        // Ore sparkle
+        if([T.COPPER,T.IRON,T.GOLD,T.GEM,T.FOSSIL,T.ANCIENT,T.MACHINE,T.UNK_ORE,T.CRYSTAL,T.DEEPCRYSTAL,T.MAGMASTONE].includes(i)){
+          ctx.fillStyle='rgba(255,255,255,0.6)';
+          ctx.beginPath();ctx.arc(i*TS+8,8,3,0,Math.PI*2);ctx.fill();
+          ctx.beginPath();ctx.arc(i*TS+22,20,2,0,Math.PI*2);ctx.fill();
+        }
+        // Grass blades
+        if(i===T.GRASS){
+          ctx.strokeStyle='#2a5c1f'; ctx.lineWidth=2;
+          for(let g=0;g<5;g++){
+            const gx=i*TS+4+g*6;
+            ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx-2,-6);ctx.stroke();
+          }
+        }
+        // Water wave
+        if(i===T.WATER){
+          ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1.5;
+          ctx.beginPath();
+          for(let wx=0;wx<TS;wx+=8){ctx.moveTo(i*TS+wx,TS/2);ctx.lineTo(i*TS+wx+4,TS/2-4);}
+          ctx.stroke();
+        }
+        // Lava glow
+        if(i===T.LAVA){
+          ctx.fillStyle='rgba(255,200,0,0.5)';
+          ctx.fillRect(i*TS+4,4,TS-8,12);
+        }
+      }
+    }
+    this.textures.addCanvas('tiles',c);
+  }
+}
+
+// ================================================================
+// SCENE: TITLE
+// ================================================================
+class TitleScene extends Phaser.Scene{
+  constructor(){super('Title');}
+  create(){
+    const W=this.scale.width,H=this.scale.height;
+    // BG
+    this.add.rectangle(W/2,H/2,W,H,0x0a0a1a);
+    // Stars
+    for(let i=0;i<60;i++){
+      this.add.circle(Math.random()*W,Math.random()*H*0.6,1+Math.random()*2,0xFFFFFF,Math.random()*0.8+0.2);
+    }
+    // Ground
+    this.add.rectangle(W/2,H-40,W,80,0x4a7c3f);
+
+    // Title
+    this.add.text(W/2,H*0.15,'⛏ HORI HORI ⛏',
+      {fontSize:Math.min(48,W/12)+'px',color:'#FFD700',fontFamily:'monospace',
+       stroke:'#000',strokeThickness:6}).setOrigin(.5);
+    this.add.text(W/2,H*0.28,'協力2人プレイ 穴掘りゲーム',
+      {fontSize:Math.min(18,W/36)+'px',color:'#AACCFF',fontFamily:'monospace'}).setOrigin(.5);
+
+    // Animated tile preview
+    const tileX=W/2-5*TS, tileY=H*0.42;
+    const previewTiles=[T.GRASS,T.DIRT,T.COPPER,T.STONE,T.GOLD,T.GEM,T.ANCIENT,T.DEEPCRYSTAL,T.BEDROCK];
+    previewTiles.forEach((t,i)=>{
+      const frame=this.textures.get('tiles').add(String(t),0,t*TS,0,TS,TS);
+      this.add.image(tileX+i*TS*1.1,tileY,'tiles',String(t)).setOrigin(.5);
+    });
+
+    // Buttons
+    const btnStyle={fontSize:Math.min(22,W/30)+'px',color:'#000',fontFamily:'monospace',
+      backgroundColor:'#FFD700',padding:{x:20,y:12}};
+    const btn1=this.add.text(W/2,H*0.6,'▶  2人で始める',btnStyle).setOrigin(.5).setInteractive();
+    const btn2=this.add.text(W/2,H*0.72,'▶  1人で始める',{...btnStyle,backgroundColor:'#88AAFF'}).setOrigin(.5).setInteractive();
+
+    btn1.on('pointerover',()=>btn1.setStyle({...btnStyle,backgroundColor:'#FFA500'}));
+    btn1.on('pointerout', ()=>btn1.setStyle({...btnStyle,backgroundColor:'#FFD700'}));
+    btn1.on('pointerdown',()=>this._start(2));
+    btn2.on('pointerover',()=>btn2.setStyle({...btnStyle,backgroundColor:'#6688CC'}));
+    btn2.on('pointerout', ()=>btn2.setStyle({...btnStyle,backgroundColor:'#88AAFF'}));
+    btn2.on('pointerdown',()=>this._start(1));
+
+    // Controls
+    const ctrlY=H*0.86;
+    this.add.text(W/2,ctrlY,
+      'P1: WASD移動  F:掘る  G:爆弾  H:ロープ  J:回復\nP2: 矢印移動  Enter:掘る  Shift:爆弾  Ctrl:ロープ',
+      {fontSize:Math.min(11,W/80)+'px',color:'#AAAAAA',fontFamily:'monospace',align:'center'}).setOrigin(.5);
+
+    // Any key to start
+    this.input.keyboard.once('keydown', ()=>this._start(2));
+  }
+  _start(numPlayers){
+    this.scene.start('World',{numPlayers});
+  }
+}
+
+// ================================================================
+// SCENE: WORLD (main game)
+// ================================================================
+class WorldScene extends Phaser.Scene{
+  constructor(){super('World');}
+
+  init(data){this.numPlayers=data.numPlayers||2;}
+
+  create(){
+    this.W=this.scale.width; this.H=this.scale.height;
+    this.mapData=generateMap(GS.day*1337+42);
+    this.players=[];
+    this.enemies=[];
+    this.droppedItems=[];
+    this.messages=[];
+    this.activeQuests=pickQuests(3);
+    GS._qStart={earn:GS.totalEarned};
+    GS._rescueDone=false;
+    this.dayTimeLeft=300; // 5 min per day
+    this.paused=false;
+    this.openMenu=null; // 'sell'|'upgrade'|'craft'|'quest'|'inventory'|'summary'
+    this.menuData={};
+
+    // Physics world bounds
+    this.physics.world.setBounds(0,0,MW*TS,MH*TS);
+
+    // Background gradient
+    this._makeBg();
+
+    // Tilemap
+    this._buildTilemap();
+
+    // 地上建物スプライト
+    this._placeBuildingSprites();
+
+    // Spawn players
+    const spawnX=Math.floor(MW/2)*TS;
+    const spawnY=(BIOMES[0].y1-2)*TS;
+    for(let i=0;i<this.numPlayers;i++){
+      const p=new Player(this,spawnX+(i*3-1)*TS,spawnY,i);
+      this.players.push(p);
+      // Add collider with tilemap
+      this.physics.add.collider(p.sprite,this.collisionLayer);
+    }
+
+    // Spawn enemies per biome
+    this._spawnEnemies();
+
+    // Input
+    this.keys1={
+      left: this.input.keyboard.addKey('A'),
+      right:this.input.keyboard.addKey('D'),
+      up:   this.input.keyboard.addKey('W'),
+      down: this.input.keyboard.addKey('S'),
+      dig:  this.input.keyboard.addKey('F'),
+      ret:  this.input.keyboard.addKey('R'),
+      bomb: this.input.keyboard.addKey('G'),
+      rope: this.input.keyboard.addKey('H'),
+      heal: this.input.keyboard.addKey('J'),
+      inv:  this.input.keyboard.addKey('I'),
+      menu: this.input.keyboard.addKey('TAB'),
+    };
+    this.keys2={
+      left: this.input.keyboard.addKey('LEFT'),
+      right:this.input.keyboard.addKey('RIGHT'),
+      up:   this.input.keyboard.addKey('UP'),
+      down: this.input.keyboard.addKey('DOWN'),
+      dig:  this.input.keyboard.addKey('ENTER'),
+      ret:  this.input.keyboard.addKey('BACKSPACE'),
+      bomb: this.input.keyboard.addKey('SHIFT'),
+      rope: this.input.keyboard.addKey('CTRL'),
+      heal: this.input.keyboard.addKey('ALT'),
+    };
+
+    // E key for interaction
+    this.input.keyboard.on('keydown-E',()=>this._interact(0));
+    this.input.keyboard.on('keydown-NUMPAD_ENTER',()=>this._interact(1));
+
+    // G/Shift = bomb
+    this.input.keyboard.on('keydown-G',()=>{if(this.players[0])this.players[0].useBomb(this.mapData);});
+    this.input.keyboard.on('keydown-SHIFT',()=>{if(this.players[1])this.players[1].useBomb(this.mapData);});
+    // H = rope
+    this.input.keyboard.on('keydown-H',()=>{if(this.players[0])this.players[0].placeRope(this.mapData);});
+    this.input.keyboard.on('keydown-CTRL',()=>{if(this.players[1])this.players[1].placeRope(this.mapData);});
+    // J = heal
+    this.input.keyboard.on('keydown-J',()=>{if(this.players[0])this.players[0].heal();});
+    this.input.keyboard.on('keydown-ALT',()=>{if(this.players[1])this.players[1].heal();});
+    // I = inventory
+    this.input.keyboard.on('keydown-I',()=>this._toggleMenu('inventory',0));
+    // ESC = close menu
+    this.input.keyboard.on('keydown-ESC',()=>this._closeMenu());
+    // TAB = toggle menu
+    this.input.keyboard.on('keydown-TAB',()=>this._toggleMenu('inventory',0));
+
+    // Mobile virtual pads
+    this.pads=[];
+    if(this.sys.game.device.input.touch){
+      this.pads.push(new VirtualPad(this,80,this.H-80,0));
+      if(this.numPlayers>1){
+        this.pads.push(new VirtualPad(this,this.W/2+80,this.H-80,1));
+      }
+    }
+
+    // Camera
+    this.cameras.main.setBounds(0,0,MW*TS,MH*TS);
+    this.cameras.main.startFollow(this.players[0].sprite,true,0.08,0.08);
+    this.cameras.main.setZoom(Math.min(1.5,this.W/(24*TS)));
+
+    // UI overlay
+    this.scene.launch('UI',{world:this});
+
+    // Lighting overlay
+    this._lightCanvas=this.textures.createCanvas('light',this.W,this.H);
+    this.lightOverlay=this.add.image(0,0,'light').setOrigin(0,0).setScrollFactor(0).setDepth(50).setAlpha(0.95);
+
+    // Message queue
+    this.msgGroup=this.add.group();
+
+    // Day timer event
+    this.time.addEvent({delay:1000,repeat:this.dayTimeLeft,callback:()=>{
+      this.dayTimeLeft--;
+      if(this.dayTimeLeft<=0)this._endDay();
+      if(this.dayTimeLeft===60)this.showMsg('⏰ あと1分！',0xFFAA00);
+      if(this.dayTimeLeft===30)this.showMsg('⚠️ 急いで戻れ！',0xFF4400);
+    }});
+
+    // Start with supplies
+    for(const p of this.players){
+      p.addItem('rope',3); p.addItem('heal',2); p.addItem('battery',2); p.addItem('bomb',1);
+    }
+
+    this.showMsg(`Day ${GS.day} 開始！掘って稼ごう！`,0x44FF44);
+  }
+
+  _placeBuildingSprites(){
+    // 地上タイルY座標 (SURFACE_Y-1行目 = 草の1タイル上に建物を置く)
+    const sy = (BIOMES[0].y1 - 1) * TS; // 草レベルのY pixel
+
+    // 建物定義: {key, tileX, displayW}
+    const bldgs=[
+      {key:'bldg_house',    tx:4,  label:'家'},
+      {key:'bldg_sell',     tx:12, label:'売却所'},
+      {key:'bldg_upgrade',  tx:20, label:'強化'},
+      {key:'bldg_warehouse',tx:28, label:'倉庫'},
+      {key:'bldg_craft',    tx:37, label:'クラフト'},
+      {key:'bldg_quest',    tx:45, label:'クエスト'},
+      {key:'bldg_generator',tx:53, label:'発電機'},
+      {key:'bldg_oxygen',   tx:59, label:'酸素'},
+      {key:'bldg_elevator', tx:Math.floor(MW/2)-1, label:'EV'},
+    ];
+
+    for(const b of bldgs){
+      const wx = b.tx * TS;
+      if(this.textures.exists(b.key)){
+        const img=this.add.image(wx, sy, b.key)
+          .setOrigin(0, 1).setDepth(2);
+        // 建物の高さを3タイル分にスケール
+        const targetH = TS * 4;
+        const frame=this.textures.getFrame(b.key);
+        if(frame) img.setScale(targetH / frame.realHeight);
+      }
+    }
+  }
+
+  _makeBg(){
+    // バイオーム背景: 画像あれば使用、なければカラー
+    const bgMap={
+      '地上':      ['bg_sky','bg_backyard'],
+      '浅い土':    ['bg_shallow_underground'],
+      '岩盤層':    ['bg_bedrock'],
+      '鉱山層':    ['bg_mine'],
+      '化石層':    ['bg_fossil'],
+      '地下湖':    ['bg_underground_lake'],
+      '古代遺跡':  ['bg_ancient_ruins'],
+      'マグマ層':  ['bg_magma'],
+      '最深部':    ['bg_deepest'],
+    };
+    const bg=this.add.graphics().setDepth(-2);
+    for(const b of BIOMES){
+      const col=b.bg||0x111111;
+      bg.fillStyle(col,1);
+      bg.fillRect(0,b.y0*TS,MW*TS,(b.y1-b.y0)*TS);
+      // 背景画像を敷き詰め
+      const keys=bgMap[b.name]||[];
+      for(const key of keys){
+        if(!this.textures.exists(key)) continue;
+        const frame=this.textures.getFrame(key);
+        const bw=frame.realWidth, bh=frame.realHeight;
+        const zoneH=(b.y1-b.y0)*TS;
+        // 横方向タイリング、縦は中央にフィット
+        const scale=zoneH/bh;
+        const sw=Math.max(1, bw*scale);
+        for(let x=0;x<=MW*TS;x+=sw){
+          this.add.image(x, b.y0*TS, key)
+            .setOrigin(0,0).setScale(scale).setDepth(-1);
+        }
+        break;
+      }
+    }
+  }
+
+  _buildTilemap(){
+    // Convert mapData (2D Uint8Array) to flat array for Phaser
+    const flatData=[];
+    for(let y=0;y<MH;y++)flatData.push(Array.from(this.mapData[y]));
+
+    const map=this.make.tilemap({data:flatData,tileWidth:TS,tileHeight:TS});
+    const tileset=map.addTilesetImage('tiles','tiles',TS,TS,0,0);
+    this.layer=map.createLayer(0,tileset,0,0);
+    this.layer.setDepth(1);
+
+    // Collision layer (only solid tiles)
+    this.collisionLayer=this.layer;
+    // Set collision for solid tiles
+    const solidIds=Object.entries(BD).filter(([,d])=>d.solid).map(([id])=>parseInt(id));
+    this.layer.setCollision(solidIds);
+  }
+
+  _spawnEnemies(){
+    const enemyTable=[
+      {biome:'浅い土',type:'worm',count:6},
+      {biome:'岩盤層', type:'bat', count:5},
+      {biome:'鉱山層', type:'slime',count:4},
+      {biome:'化石層', type:'worm',count:5},
+      {biome:'地下湖', type:'bat', count:6},
+      {biome:'古代遺跡',type:'arobot',count:4},
+      {biome:'マグマ層',type:'golem',count:4},
+      {biome:'最深部', type:'plant',count:5},
+    ];
+    for(const et of enemyTable){
+      const b=BIOMES.find(x=>x.name===et.biome);if(!b)continue;
+      for(let i=0;i<et.count;i++){
+        const ex=(3+Math.floor(Math.random()*(MW-6)))*TS;
+        const ey=(b.y0+2+Math.floor(Math.random()*(b.y1-b.y0-4)))*TS;
+        const e=new Enemy(this,ex,ey,et.type);
+        this.physics.add.collider(e.sprite,this.collisionLayer);
+        this.enemies.push(e);
+      }
+    }
+  }
+
+  update(time,delta){
+    const dt=Math.min(delta/1000,0.05);
+    if(this.paused||this.openMenu)return;
+
+    // Update players
+    for(let i=0;i<this.players.length;i++){
+      const p=this.players[i];
+      const keys=i===0?this._keysState(this.keys1):this._keysState(this.keys2);
+      const pad=this.pads[i]||null;
+      p.update(dt,keys,pad,this.mapData);
+    }
+
+    // Co-op proximity bonus
+    if(this.players.length===2&&!this.players[0].downed&&!this.players[1].downed){
+      const dist=Math.hypot(
+        this.players[0].sprite.x-this.players[1].sprite.x,
+        this.players[0].sprite.y-this.players[1].sprite.y);
+      const bonus=dist<80?1.3:1;
+      this.players[0]._coopBonus=bonus; this.players[1]._coopBonus=bonus;
+    }
+
+    // Rescue check
+    if(this.players.length===2){
+      if(this.players[0].downed&&!this.players[1].downed)this.players[1].rescue(this.players[0]);
+      if(this.players[1].downed&&!this.players[0].downed)this.players[0].rescue(this.players[1]);
+    }
+
+    // Update enemies
+    for(const e of this.enemies){
+      e.update(dt,this.players,this.mapData);
+    }
+
+    // Camera follow: center of active players
+    const active=this.players.filter(p=>!p.downed);
+    if(active.length===2){
+      const cx=(active[0].sprite.x+active[1].sprite.x)/2;
+      const cy=(active[0].sprite.y+active[1].sprite.y)/2;
+      this.cameras.main.centerOn(cx,cy);
+    }
+
+    // Lighting
+    this._updateLighting();
+
+    // Quest check
+    this._checkQuests();
+
+    // Check interaction proximity (surface buildings)
+    this._checkBuildingProximity();
+  }
+
+  _keysState(kb){
+    return{
+      left:kb.left.isDown, right:kb.right.isDown,
+      up:kb.up.isDown, down:kb.down&&kb.down.isDown,
+      dig:kb.dig.isDown, ret:kb.ret&&kb.ret.isDown,
+    };
+  }
+
+  _updateLighting(){
+    const ctx=this._lightCanvas.context;
+    const W=this.W, H=this.H;
+    ctx.clearRect(0,0,W,H);
+
+    // Determine darkness based on camera Y position
+    const camTileY=Math.floor(this.cameras.main.scrollY/TS);
+    const biome=getBiome(camTileY);
+    const dark=biome.darkFactor||0;
+    if(dark<0.05){this.lightOverlay.setAlpha(0);return;}
+
+    ctx.fillStyle=`rgba(0,0,0,${dark})`;
+    ctx.fillRect(0,0,W,H);
+
+    // Player light sources
+    ctx.globalCompositeOperation='destination-out';
+    for(const p of this.players){
+      if(p.downed)continue;
+      const sx=p.sprite.x-this.cameras.main.scrollX;
+      const sy=p.sprite.y-this.cameras.main.scrollY;
+      const r=p.lightRange*(this.cameras.main.zoom);
+      const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,r);
+      grad.addColorStop(0,'rgba(0,0,0,1)');
+      grad.addColorStop(0.4,'rgba(0,0,0,0.7)');
+      grad.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grad;
+      ctx.beginPath(); ctx.arc(sx,sy,r,0,Math.PI*2); ctx.fill();
+    }
+    // Lava light
+    ctx.globalCompositeOperation='destination-out';
+
+    ctx.globalCompositeOperation='source-over';
+    this._lightCanvas.refresh();
+    this.lightOverlay.setAlpha(0.92);
+  }
+
+  onBlockBroken(tx,ty,blockType,player){
+    // Update tilemap visual
+    if(this.layer)this.layer.putTileAt(T.AIR,tx,ty);
+
+    // Drop item
+    const def=BD[blockType];
+    if(def&&def.drop){
+      if(def.drop==='chest'){
+        this._openChest(tx,ty,player);
+      } else {
+        player.addItem(def.drop,1);
+        // Rare discovery effect
+        if(ITEMS[def.drop]&&ITEMS[def.drop].rare){
+          this.showMsg(`✨ レアアイテム発見: ${ITEMS[def.drop].name}!`,0xFFD700);
+          this.cameras.main.flash(300,255,215,0,false);
+        }
+      }
+    }
+  }
+
+  _openChest(tx,ty,player){
+    const lootTable=[
+      {item:'gold',  qty:1,  w:4},
+      {item:'gem',   qty:1,  w:2},
+      {item:'bomb',  qty:2,  w:3},
+      {item:'heal',  qty:2,  w:3},
+      {item:'rope',  qty:3,  w:3},
+      {item:'map_piece',qty:1,w:1},
+      {item:'dkey',  qty:1,  w:1},
+      {item:'ancient',qty:1, w:2},
+    ];
+    let r=Math.random()*lootTable.reduce((s,l)=>s+l.w,0);
+    for(const l of lootTable){
+      r-=l.w; if(r<=0){
+        player.addItem(l.item,l.qty);
+        this.showMsg(`📦 宝箱: ${ITEMS[l.item]?.name||l.item} x${l.qty}!`,0xDAA520);
+        if(l.item==='map_piece'){GS.mapPieces++;this.showMsg('🗺️ 地図の欠片を発見！',0xFFFF00);}
+        break;
+      }
+    }
+    this.cameras.main.shake(200,0.005);
+  }
+
+  activateSwitch(sx,sy){
+    // Find associated doors and open them
+    this.mapData[sy][sx]=T.SW_ON;
+    this.layer.putTileAt(T.SW_ON,sx,sy);
+    // Open doors in vicinity
+    for(let dy=-20;dy<=20;dy++){
+      for(let dx=-20;dx<=20;dx++){
+        const bt=this.mapData[sy+dy]?.[sx+dx];
+        if(bt===T.DOOR_C){
+          this.mapData[sy+dy][sx+dx]=T.DOOR_O;
+          this.layer.putTileAt(T.DOOR_O,sx+dx,sy+dy);
+          // Update collision
+          this.layer.setCollision([T.DOOR_C],true);
+          this.layer.setCollision([T.DOOR_O],false);
+        }
+      }
+    }
+    this.showMsg('🔓 扉が開いた！',0x44FF44);
+    this.cameras.main.flash(200,0,255,0,false);
+  }
+
+  _checkBuildingProximity(){
+    for(const p of this.players){
+      if(p.downed)continue;
+      const px=p.sprite.x/TS, py=p.sprite.y/TS;
+      if(py>BIOMES[0].y1+2)continue; // underground
+      // Building zones
+      const bldgs=[
+        {name:'SELL',x:14,label:'[E] 売却所'},
+        {name:'UPGRADE',x:22,label:'[E] 強化Shop'},
+        {name:'QUEST',x:47,label:'[E] クエスト掲示板'},
+        {name:'CRAFT',x:39,label:'[E] クラフト台'},
+        {name:'WAREHOUSE',x:31,label:'[E] 倉庫'},
+        {name:'OXYGEN',x:61,label:'[E] 酸素補給'},
+      ];
+      for(const b of bldgs){
+        if(Math.abs(px-b.x)<3.5){
+          this._nearBuilding=b.name;
+          this._nearBldgLabel=b.label;
+          return;
+        }
+      }
+      this._nearBuilding=null; this._nearBldgLabel=null;
+    }
+  }
+
+  _interact(pid){
+    if(this.openMenu){this._closeMenu();return;}
+    const p=this.players[pid]||this.players[0];
+    if(!p)return;
+    const py=p.sprite.y/TS;
+    if(py>BIOMES[0].y1+3){
+      // Underground: open inventory
+      this._toggleMenu('inventory',pid);
+      return;
+    }
+    // Surface buildings
+    switch(this._nearBuilding){
+      case 'SELL':    this._openSell(p); break;
+      case 'UPGRADE': this._openUpgrade(p); break;
+      case 'QUEST':   this._openQuest(); break;
+      case 'CRAFT':   this._openCraft(p); break;
+      case 'WAREHOUSE':this._openWarehouse(); break;
+      case 'OXYGEN':  this._refillOxygen(p); break;
+      default:        this._toggleMenu('inventory',pid);
+    }
+  }
+
+  _pausePhysicsForMenu(){this.physics.pause();}
+  _resumePhysicsFromMenu(){if(!this.openMenu)this.physics.resume();}
+
+  _openSell(p){
+    if(Object.keys(p.inventory).length===0){this.showMsg('持ち物がありません',0xFF8800);return;}
+    this.openMenu='sell'; this._pausePhysicsForMenu();
+    this.menuData={player:p};
+    this.scene.get('UI').openSellMenu(p);
+  }
+
+  _openUpgrade(p){
+    this.openMenu='upgrade'; this._pausePhysicsForMenu();
+    this.menuData={player:p};
+    this.scene.get('UI').openUpgradeMenu(p);
+  }
+
+  _openQuest(){
+    this.openMenu='quest'; this._pausePhysicsForMenu();
+    this.scene.get('UI').openQuestMenu(this.activeQuests);
+  }
+
+  _openCraft(p){
+    this.openMenu='craft'; this._pausePhysicsForMenu();
+    this.menuData={player:p};
+    this.scene.get('UI').openCraftMenu(p);
+  }
+
+  _openWarehouse(){
+    this.openMenu='warehouse'; this._pausePhysicsForMenu();
+    this.scene.get('UI').openWarehouseMenu(GS.trophies);
+  }
+
+  _refillOxygen(p){
+    const cost=20;
+    if(GS.gold>=cost){GS.gold-=cost;p.oxygen=p.maxOxygen;p.battery=p.maxBattery;
+      this.showMsg('🌬️ 酸素&電池補給完了！(-'+cost+'G)',0x87CEEB);}
+    else this.showMsg('ゴールドが足りない！',0xFF4444);
+  }
+
+  _toggleMenu(type,pid){
+    if(this.openMenu===type){this._closeMenu();}
+    else{this.openMenu=type; this._pausePhysicsForMenu(); this.scene.get('UI').openInventoryMenu(this.players[pid]||this.players[0]);}
+  }
+
+  _closeMenu(){
+    this.openMenu=null;
+    this._resumePhysicsFromMenu();
+    this.scene.get('UI').closeMenu();
+  }
+
+  showMsg(text,color=0xFFFFFF){
+    const W=this.W;
+    const t=this.add.text(W/2,80,text,
+      {fontSize:'14px',color:'#'+color.toString(16).padStart(6,'0'),
+       fontFamily:'monospace',backgroundColor:'#000000AA',padding:{x:8,y:4}})
+      .setOrigin(.5).setScrollFactor(0).setDepth(100);
+    this.tweens.add({targets:t,y:40,alpha:0,duration:2500,ease:'Power1',
+      onComplete:()=>t.destroy()});
+  }
+
+  _checkQuests(){
+    for(const q of this.activeQuests){
+      if(q.done)continue;
+      if(q.check(GS,this.players)){
+        q.done=true; GS.gold+=q.reward; GS.questsDone++;
+        this.showMsg(`✅ クエスト完了: ${q.text} +${q.reward}G`,0xFFD700);
+        this.cameras.main.flash(400,255,215,0,false);
+      }
+    }
+  }
+
+  _endDay(){
+    this.paused=true;
+    this.physics.pause();
+    this.scene.get('UI').events.emit('endDay');
+    this.time.delayedCall(800,()=>{
+      this.scene.stop('UI');
+      this.scene.start('Summary',{
+        players:this.players.map(p=>({
+          deepest:p.deepest,
+          inventory:p.inventory,
+          gold:GS.gold,
+        })),
+        quests:this.activeQuests,
+        day:GS.day,
+      });
+    });
+  }
+}
+
+// ================================================================
+// SCENE: UI (HUD overlay)
+// ================================================================
+class UIScene extends Phaser.Scene{
+  constructor(){super('UI');}
+  init(data){this.world=data.world;}
+
+  create(){
+    this.W=this.scale.width; this.H=this.scale.height;
+    this.menuOpen=false;
+    this.menuContainer=null;
+
+    // HUD background
+    this.hudBg=this.add.graphics();
+    this.p1Texts=this._makePlayerHUD(0,10,10);
+    this.p2Texts=this._makePlayerHUD(1,this.W/2+10,10);
+
+    // Day timer
+    this.timerText=this.add.text(this.W/2,8,'',
+      {fontSize:'14px',color:'#FFF',fontFamily:'monospace',backgroundColor:'#000A',padding:{x:6,y:2}})
+      .setOrigin(.5,0).setDepth(90);
+
+    // Biome indicator
+    this.biomeText=this.add.text(this.W/2,this.H-22,'',
+      {fontSize:'11px',color:'#CCC',fontFamily:'monospace',backgroundColor:'#0008',padding:{x:4,y:2}})
+      .setOrigin(.5,1).setDepth(90);
+
+    // Interaction hint
+    this.hintText=this.add.text(this.W/2,this.H-44,'',
+      {fontSize:'12px',color:'#FFD700',fontFamily:'monospace',backgroundColor:'#000A',padding:{x:6,y:3}})
+      .setOrigin(.5,1).setDepth(90);
+
+    // Minimap
+    this.minimapGfx=this.add.graphics().setDepth(91);
+    this.minimapBg=this.add.graphics().setDepth(90);
+    this._drawMinimapBg();
+
+    this.events.on('endDay',()=>{
+      this.timerText.setText('⏰ 帰還中...');
+    });
+  }
+
+  _makePlayerHUD(pid,x,y){
+    const col=pid===0?'#88AAFF':'#FF8866';
+    const style={fontSize:'11px',color:col,fontFamily:'monospace',
+      backgroundColor:'#000C',padding:{x:3,y:2}};
+    return{
+      hp:   this.add.text(x,y,    '',style).setDepth(90),
+      st:   this.add.text(x,y+18, '',style).setDepth(90),
+      ox:   this.add.text(x,y+36, '',style).setDepth(90),
+      bat:  this.add.text(x,y+54, '',style).setDepth(90),
+      wt:   this.add.text(x,y+72, '',style).setDepth(90),
+      gold: this.add.text(x,y+90, '',style).setDepth(90),
+      depth:this.add.text(x,y+108,'',style).setDepth(90),
+      tool: this.add.text(x,y+126,'',style).setDepth(90),
+    };
+  }
+
+  update(){
+    const world=this.scene.get('World');
+    if(!world||!world.players)return;
+
+    // Update player HUDs
+    world.players.forEach((p,i)=>{
+      if(i>1)return;
+      const h=i===0?this.p1Texts:this.p2Texts;
+      const bar=(v,m,len=10)=>{const f=Math.round((v/m)*len);return '█'.repeat(f)+'░'.repeat(len-f);};
+      h.hp.setText(`❤️ ${bar(p.hp,p.maxHp,8)} ${Math.ceil(p.hp)}`);
+      h.st.setText(`⚡ ${bar(p.stamina,p.maxStamina,8)}`);
+      h.ox.setText(`🌬 ${bar(p.oxygen,p.maxOxygen,8)}`);
+      h.bat.setText(`🔦 ${bar(p.battery,p.maxBattery,8)}`);
+      h.wt.setText(`🎒 ${p.totalWeight()}/${p.maxWeight}kg`);
+      h.gold.setText(`💰 ${GS.gold}G`);
+      const depth=Math.max(0,Math.floor(p.sprite.y/TS)-BIOMES[0].y1);
+      h.depth.setText(`📍 深${depth}m`);
+      h.tool.setText(`🔧 ${p.tool}${p.mineTarget?` (${Math.round(p.mineProgress*10)/10})`:''}`);
+    });
+
+    // Day timer
+    const m=Math.floor(world.dayTimeLeft/60);
+    const s=world.dayTimeLeft%60;
+    const col=world.dayTimeLeft<60?'#FF4444':world.dayTimeLeft<120?'#FFAA00':'#FFFFFF';
+    this.timerText.setText(`Day ${GS.day}  ⏱ ${m}:${String(s).padStart(2,'0')}`).setColor(col);
+
+    // Biome
+    const camY=world.cameras.main.scrollY;
+    const b=getBiome(Math.floor(camY/TS));
+    this.biomeText.setText(`【${b.name}】`);
+
+    // Interaction hint
+    this.hintText.setText(world._nearBldgLabel||'');
+
+    // Minimap
+    this._updateMinimap(world);
+  }
+
+  _drawMinimapBg(){
+    const mx=this.W-74, my=10, mw=64, mh=80;
+    this.minimapBg.clear();
+    this.minimapBg.fillStyle(0x000000,0.7);
+    this.minimapBg.fillRect(mx-2,my-2,mw+4,mh+4);
+    this.minimapBg.strokeStyle=0x444444,0.8;
+    this.minimapBg.strokeRect(mx-2,my-2,mw+4,mh+4);
+  }
+
+  _updateMinimap(world){
+    const mx=this.W-74, my=10, mw=64, mh=80;
+    this.minimapGfx.clear();
+    if(!world.players)return;
+
+    // Show camera region on minimap
+    const camTy=Math.floor(world.cameras.main.scrollY/TS);
+    const viewH=24, viewW=20;
+    const tyStart=Math.max(0,camTy-viewH/2);
+
+    for(const p of world.players){
+      if(p.downed)continue;
+      const ptx=Math.floor(p.sprite.x/TS);
+      const pty=Math.floor(p.sprite.y/TS);
+      const mmx=mx+Math.floor((ptx/MW)*mw);
+      const mmy=my+Math.floor((pty/MH)*mh);
+      this.minimapGfx.fillStyle(p.id===0?0x4488FF:0xFF6644,1);
+      this.minimapGfx.fillRect(mmx-2,mmy-2,5,5);
+    }
+    // Enemies as red dots
+    if(world.enemies){
+      for(const e of world.enemies){
+        if(e.dead)continue;
+        const etx=Math.floor(e.sprite.x/TS);
+        const ety=Math.floor(e.sprite.y/TS);
+        const mmx=mx+Math.floor((etx/MW)*mw);
+        const mmy=my+Math.floor((ety/MH)*mh);
+        if(Math.abs(ety-(world.players[0]?.sprite.y/TS||0))<30){
+          this.minimapGfx.fillStyle(0xFF0000,.6);
+          this.minimapGfx.fillRect(mmx-1,mmy-1,3,3);
+        }
+      }
+    }
+    // Chests as yellow
+    for(let y=camTy-10;y<camTy+40;y++){
+      if(y<0||y>=MH)continue;
+      for(let x=0;x<MW;x++){
+        if(world.mapData[y][x]===T.CHEST){
+          const mmx=mx+Math.floor((x/MW)*mw);
+          const mmy=my+Math.floor((y/MH)*mh);
+          this.minimapGfx.fillStyle(0xDAA520,.8);
+          this.minimapGfx.fillRect(mmx-1,mmy-1,3,3);
+        }
+      }
+    }
+  }
+
+  openSellMenu(player){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(400,W-40),ph=Math.min(380,H-40);
+    const px=(W-pw)/2, py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x1a1a2e,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0xFFD700,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'💰 売却所',{fontSize:'18px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5));
+
+    let totalVal=0;
+    let y=50;
+    for(const[k,v]of Object.entries(player.inventory)){
+      if(!ITEMS[k]||ITEMS[k].sell<=0)continue;
+      const mult=1+GS.baseLevel.sell*0.1;
+      const val=Math.floor(v*ITEMS[k].sell*mult);
+      totalVal+=val;
+      const col=ITEMS[k].rare?'#FFD700':'#FFFFFF';
+      this.menuContainer.add(this.add.text(12,y,`${ITEMS[k].name} x${v}  →  ${val}G`,
+        {fontSize:'13px',color:col,fontFamily:'monospace'}).setOrigin(0,.5));
+      y+=24;
+    }
+    if(totalVal===0){
+      this.menuContainer.add(this.add.text(pw/2,ph/2,'売れるものがありません',{fontSize:'14px',color:'#888',fontFamily:'monospace'}).setOrigin(.5));
+    } else {
+      this.menuContainer.add(this.add.text(pw/2,y+10,`合計: ${totalVal}G`,{fontSize:'16px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5));
+      const sellBtn=this.add.text(pw/2,y+40,'【 全部売る 】',
+        {fontSize:'16px',color:'#000',backgroundColor:'#FFD700',padding:{x:16,y:8},fontFamily:'monospace'})
+        .setOrigin(.5).setInteractive();
+      sellBtn.on('pointerdown',()=>{
+        const earned=player.sellAll();
+        this.add.text(W/2,H/2,`+${earned}G !`,{fontSize:'32px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:4}).setOrigin(.5).setDepth(300);
+        this.time.delayedCall(1500,()=>this._clearMenu());
+        this.scene.get('World').showMsg(`売却完了 +${earned}G！`,0xFFD700);
+        GS.trophies.push(...Object.entries(player.inventory).filter(([k])=>ITEMS[k]?.rare).map(([k])=>k));
+      });
+      this.menuContainer.add(sellBtn);
+    }
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  openUpgradeMenu(player){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(440,W-20),ph=Math.min(460,H-20);
+    const px=(W-pw)/2,py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x1a2e1a,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0x44FF44,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'⚔️ 強化ショップ',{fontSize:'18px',color:'#44FF44',fontFamily:'monospace'}).setOrigin(.5));
+    this.menuContainer.add(this.add.text(pw/2,38,`所持金: ${GS.gold}G`,{fontSize:'13px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5));
+
+    const upgrades=[
+      {key:'hp',    name:'❤️  体力UP',        desc:'+20 HP'},
+      {key:'stamina',name:'⚡ スタミナUP',    desc:'+20 SP'},
+      {key:'weight', name:'🎒 重量UP',         desc:'+10 kg'},
+      {key:'speed',  name:'👟 移動速度UP',     desc:'+20 px/s'},
+      {key:'light',  name:'🔦 ライト強化',     desc:'+40 range'},
+      {key:'pickaxe',name:'⛏  ツルハシ強化',   desc:'+25% speed'},
+      {key:'drill',  name:'🔩 ドリル強化',     desc:'+area'},
+      {key:'bomb',   name:'💣 爆弾強化',       desc:'+radius'},
+    ];
+
+    let y=60;
+    for(const u of upgrades){
+      const lv=player.upgrades[u.key]||0;
+      const cost=player._upgCost(u.key);
+      const canAfford=GS.gold>=cost;
+      const rowBg=this.add.graphics();
+      rowBg.fillStyle(canAfford?0x223322:0x222222,.8);
+      rowBg.fillRoundedRect(8,y-12,pw-16,36,6);
+      this.menuContainer.add(rowBg);
+      this.menuContainer.add(this.add.text(16,y-4,`${u.name}  Lv${lv}`,{fontSize:'12px',color:canAfford?'#FFFFFF':'#888888',fontFamily:'monospace'}));
+      this.menuContainer.add(this.add.text(pw/2,y-4,u.desc,{fontSize:'11px',color:'#AAAAAA',fontFamily:'monospace'}).setOrigin(.5,0));
+      const costTxt=`${cost}G`;
+      const btn=this.add.text(pw-12,y-4,costTxt,
+        {fontSize:'12px',color:canAfford?'#000':'#666',backgroundColor:canAfford?'#44FF44':'#333',
+         padding:{x:8,y:4},fontFamily:'monospace'}).setOrigin(1,0);
+      if(canAfford){
+        btn.setInteractive();
+        btn.on('pointerdown',()=>{
+          if(player.applyUpgrade(u.key)){
+            this.scene.get('World').showMsg(`⬆️ ${u.name} → Lv${player.upgrades[u.key]}!`,0x44FF44);
+            this.openUpgradeMenu(player); // refresh
+          }
+        });
+      }
+      this.menuContainer.add(btn);
+      y+=42;
+    }
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  openQuestMenu(quests){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(380,W-20),ph=Math.min(340,H-20);
+    const px=(W-pw)/2,py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x2e1a1a,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0xFF8844,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'📋 クエスト掲示板',{fontSize:'17px',color:'#FF8844',fontFamily:'monospace'}).setOrigin(.5));
+
+    let y=50;
+    for(const q of quests){
+      const col=q.done?'#44FF44':'#FFFFFF';
+      const icon=q.done?'✅':'⬜';
+      this.menuContainer.add(this.add.text(16,y,`${icon} ${q.text}`,{fontSize:'13px',color:col,fontFamily:'monospace'}));
+      this.menuContainer.add(this.add.text(pw-16,y,`+${q.reward}G`,{fontSize:'13px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(1,0));
+      y+=34;
+    }
+    this.menuContainer.add(this.add.text(pw/2,y+10,`完了: ${GS.questsDone}  深さ最高: ${GS.deepestReached}m`,
+      {fontSize:'11px',color:'#AAAAAA',fontFamily:'monospace'}).setOrigin(.5));
+
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  openCraftMenu(player){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(400,W-20),ph=Math.min(380,H-20);
+    const px=(W-pw)/2,py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x1a1a2a,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0x8844FF,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'🔨 クラフト台',{fontSize:'18px',color:'#8844FF',fontFamily:'monospace'}).setOrigin(.5));
+
+    const recipes=[
+      {out:'bomb', qty:1, ing:{stone:5,iron:2}, name:'💣 爆弾'},
+      {out:'rope',  qty:3, ing:{stone:3},        name:'🪢 ロープx3'},
+      {out:'heal',  qty:1, ing:{copper:2},       name:'💊 回復薬'},
+      {out:'ladder',qty:2, ing:{stone:4,wood:2}, name:'🪜 はしごx2'},
+      {out:'battery',qty:1,ing:{copper:3,iron:1},name:'🔋 電池'},
+      {out:'oxygen',qty:1, ing:{iron:3,crystal:1},name:'🫙 酸素ボンベ'},
+      {out:'beacon',qty:1, ing:{gold:1,iron:2},  name:'📡 帰還ビーコン'},
+    ];
+
+    let y=48;
+    for(const r of recipes){
+      const canCraft=Object.entries(r.ing).every(([k,v])=>(player.inventory[k]||0)>=v);
+      const ingStr=Object.entries(r.ing).map(([k,v])=>`${ITEMS[k]?.name||k}×${v}`).join(', ');
+      const rowBg=this.add.graphics();
+      rowBg.fillStyle(canCraft?0x221133:0x1a1a1a,.8);
+      rowBg.fillRoundedRect(8,y-14,pw-16,40,6);
+      this.menuContainer.add(rowBg);
+      this.menuContainer.add(this.add.text(16,y-6,r.name,{fontSize:'13px',color:canCraft?'#FFFFFF':'#666',fontFamily:'monospace'}));
+      this.menuContainer.add(this.add.text(16,y+10,ingStr,{fontSize:'10px',color:'#AAAAAA',fontFamily:'monospace'}));
+      if(canCraft){
+        const btn=this.add.text(pw-14,y,'作る',
+          {fontSize:'12px',color:'#000',backgroundColor:'#8844FF',padding:{x:10,y:4},fontFamily:'monospace'})
+          .setOrigin(1,.5).setInteractive();
+        btn.on('pointerdown',()=>{
+          for(const[k,v]of Object.entries(r.ing))player.removeItem(k,v);
+          player.addItem(r.out,r.qty);
+          this.scene.get('World').showMsg(`🔨 ${r.name} 作成！`,0x8844FF);
+          this.openCraftMenu(player);
+        });
+        this.menuContainer.add(btn);
+      }
+      y+=46;
+    }
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  openInventoryMenu(player){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(360,W-20),ph=Math.min(400,H-20);
+    const px=(W-pw)/2,py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x0a0a1e,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0x4488FF,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'🎒 インベントリ',{fontSize:'17px',color:'#4488FF',fontFamily:'monospace'}).setOrigin(.5));
+    this.menuContainer.add(this.add.text(pw/2,36,`重量: ${player.totalWeight()}/${player.maxWeight}kg  ゴールド: ${GS.gold}G`,
+      {fontSize:'11px',color:'#AAAAAA',fontFamily:'monospace'}).setOrigin(.5));
+
+    let y=58;
+    const entries=Object.entries(player.inventory);
+    if(entries.length===0){
+      this.menuContainer.add(this.add.text(pw/2,ph/2,'空',{fontSize:'16px',color:'#444',fontFamily:'monospace'}).setOrigin(.5));
+    }
+    for(const[k,v]of entries){
+      if(!v||v<=0)continue;
+      const def=ITEMS[k];if(!def)continue;
+      const col=def.rare?'#FFD700':def.use?'#44DDFF':'#FFFFFF';
+      const row=this.add.text(16,y,`${def.name}`,{fontSize:'12px',color:col,fontFamily:'monospace'});
+      const qty=this.add.text(pw-80,y,`x${v}`,{fontSize:'12px',color:'#CCC',fontFamily:'monospace'});
+      const wt=this.add.text(pw-16,y,`${def.w*v}kg`,{fontSize:'11px',color:'#888',fontFamily:'monospace'}).setOrigin(1,0);
+      this.menuContainer.add([row,qty,wt]);
+      if(def.use){
+        const useBtn=this.add.text(pw-120,y,'使う',
+          {fontSize:'11px',color:'#000',backgroundColor:'#44DDFF',padding:{x:6,y:2},fontFamily:'monospace'})
+          .setInteractive();
+        useBtn.on('pointerdown',()=>{
+          if(k==='heal')player.heal();
+          else if(k==='rope')player.placeRope(this.scene.get('World').mapData);
+          else if(k==='bomb')player.useBomb(this.scene.get('World').mapData);
+          else if(k==='beacon'){player.removeItem('beacon');player.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);}
+          this.openInventoryMenu(player);
+        });
+        this.menuContainer.add(useBtn);
+      }
+      y+=26;
+      if(y>ph-40)break;
+    }
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  openWarehouseMenu(trophies){
+    this.menuOpen=true;
+    this._clearMenu();
+    const W=this.W,H=this.H;
+    const pw=Math.min(360,W-20),ph=Math.min(300,H-20);
+    const px=(W-pw)/2,py=(H-ph)/2;
+    this.menuContainer=this.add.container(px,py).setDepth(200);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x1a1000,0.97);bg.fillRoundedRect(0,0,pw,ph,12);
+    bg.lineStyle(2,0xDAA520,1);bg.strokeRoundedRect(0,0,pw,ph,12);
+    this.menuContainer.add(bg);
+    this.menuContainer.add(this.add.text(pw/2,16,'🏆 倉庫・戦利品',{fontSize:'17px',color:'#DAA520',fontFamily:'monospace'}).setOrigin(.5));
+    let y=50;
+    if(trophies.length===0){
+      this.menuContainer.add(this.add.text(pw/2,ph/2,'まだ何もない',{fontSize:'14px',color:'#444',fontFamily:'monospace'}).setOrigin(.5));
+    } else {
+      const counts={};
+      for(const t of trophies)counts[t]=(counts[t]||0)+1;
+      for(const[k,v]of Object.entries(counts)){
+        this.menuContainer.add(this.add.text(pw/2,y,`${ITEMS[k]?.name||k} × ${v}`,
+          {fontSize:'13px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5));
+        y+=26;
+      }
+    }
+    const closeBtn=this.add.text(pw-10,8,'✕',{fontSize:'18px',color:'#FF4444',fontFamily:'monospace'}).setOrigin(1,0).setInteractive();
+    closeBtn.on('pointerdown',()=>this._closeMenuAndWorld());
+    this.menuContainer.add(closeBtn);
+  }
+
+  closeMenu(){this._clearMenu();}
+
+  _clearMenu(){
+    this.menuOpen=false;
+    if(this.menuContainer){this.menuContainer.destroy(true);this.menuContainer=null;}
+  }
+
+  _closeMenuAndWorld(){
+    this._clearMenu();
+    const world=this.scene.get('World');
+    if(world){world.openMenu=null;world._resumePhysicsFromMenu();}
+  }
+}
+
+// ================================================================
+// SCENE: SUMMARY (end of day)
+// ================================================================
+class SummaryScene extends Phaser.Scene{
+  constructor(){super('Summary');}
+  init(d){this.data2=d;}
+  create(){
+    const W=this.scale.width,H=this.scale.height;
+    const d=this.data2;
+
+    this.add.rectangle(W/2,H/2,W,H,0x0a0a1e);
+    this.add.text(W/2,40,`Day ${d.day} 終了！`,{fontSize:Math.min(36,W/14)+'px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:4}).setOrigin(.5);
+
+    let y=100;
+    this.add.text(W/2,y,`💰 共有ゴールド: ${GS.gold}G`,{fontSize:'18px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5);
+    y+=36;
+    this.add.text(W/2,y,`📍 最深到達: ${GS.deepestReached}m`,{fontSize:'16px',color:'#AADDFF',fontFamily:'monospace'}).setOrigin(.5);
+    y+=30;
+
+    // Player summaries
+    d.players.forEach((p,i)=>{
+      y+=10;
+      this.add.text(W/2,y,`P${i+1} 最深: ${p.deepest}m`,
+        {fontSize:'14px',color:i===0?'#88AAFF':'#FF8866',fontFamily:'monospace'}).setOrigin(.5);
+      y+=24;
+    });
+
+    // Quest results
+    y+=10;
+    this.add.text(W/2,y,'クエスト結果:',{fontSize:'14px',color:'#FF8844',fontFamily:'monospace'}).setOrigin(.5);
+    y+=26;
+    for(const q of d.quests){
+      this.add.text(W/2,y,`${q.done?'✅':'❌'} ${q.text} +${q.done?q.reward:0}G`,
+        {fontSize:'12px',color:q.done?'#44FF44':'#888',fontFamily:'monospace'}).setOrigin(.5);
+      y+=22;
+    }
+
+    // Accomplishments
+    if(GS.mapPieces>0){
+      y+=10;
+      this.add.text(W/2,y,`🗺️ 地図の欠片: ${GS.mapPieces}/5`,{fontSize:'13px',color:'#FFFF00',fontFamily:'monospace'}).setOrigin(.5);
+      y+=24;
+    }
+
+    y+=20;
+    GS.day++;
+    if(GS.day>GS.maxDay){
+      this.add.text(W/2,y,'🎉 ゲームクリア！最深部まで到達！',{fontSize:'18px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:3}).setOrigin(.5);
+      y+=40;
+    }
+
+    // Next day button
+    const nextBtn=this.add.text(W/2,Math.min(y,H-60),'▶ 次の日へ',
+      {fontSize:'22px',color:'#000',backgroundColor:'#FFD700',padding:{x:24,y:12},fontFamily:'monospace'})
+      .setOrigin(.5).setInteractive();
+    nextBtn.on('pointerover',()=>nextBtn.setBackgroundColor('#FFA500'));
+    nextBtn.on('pointerout', ()=>nextBtn.setBackgroundColor('#FFD700'));
+    nextBtn.on('pointerdown',()=>{
+      // Give each player starting supplies for next day
+      this.scene.start('World',{numPlayers:d.players.length});
+    });
+    this.input.keyboard.once('keydown-ENTER',()=>this.scene.start('World',{numPlayers:d.players.length}));
+    this.input.keyboard.once('keydown-SPACE', ()=>this.scene.start('World',{numPlayers:d.players.length}));
+  }
+}
+
+// ================================================================
+// PHASER CONFIG + LAUNCH
+// ================================================================
+const config={
+  type:Phaser.AUTO,
+  width:window.innerWidth,
+  height:window.innerHeight,
+  backgroundColor:'#0a0a1e',
+  physics:{
+    default:'arcade',
+    arcade:{gravity:{y:600},debug:false},
+  },
+  scene:[BootScene,TitleScene,WorldScene,UIScene,SummaryScene],
+  scale:{
+    mode:Phaser.Scale.RESIZE,
+    autoCenter:Phaser.Scale.CENTER_BOTH,
+  },
+  render:{antialias:false,pixelArt:true},
+};
+
+const game=new Phaser.Game(config);
+
+// Handle resize
+window.addEventListener('resize',()=>{
+  game.scale.resize(window.innerWidth,window.innerHeight);
+});
+</script>
+</body>
+</html>
