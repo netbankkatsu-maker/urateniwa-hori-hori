@@ -23,6 +23,7 @@ align-items:center;justify-content:center;text-align:center;z-index:9999;flex-di
   <div>横向きにしてください<br><small>Please rotate to landscape</small></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script>
 'use strict';
 
@@ -1806,80 +1807,129 @@ class WorldScene extends Phaser.Scene{
   // ================================================================
   // オンラインマルチプレイヤー (Supabase Realtime Broadcast)
   // ================================================================
+  // PeerJS P2Pオンライン接続 (サーバー不要・無料)
+  // ================================================================
   _initOnline(){
-    // Supabaseクライアントがなければ代替でWebSocket
-    if(typeof supabase==='undefined'&&typeof window.supabaseJs==='undefined'){
-      this._initSimpleWebRTC();
+    if(typeof Peer==='undefined'){
+      this.showMsg('⚠️ PeerJS読み込み待ち...再接続中',0xFFAA00);
+      this.time.delayedCall(2000,()=>this._initOnline());
       return;
     }
+    const roomId=this.roomId;
+    const isHost=this.isHost;
+
     try{
-      const sb=window._sbClient||(()=>{
-        const url=window.SUPABASE_URL||'https://xyzcompany.supabase.co';
-        const key=window.SUPABASE_KEY||'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder';
-        return (window.supabase||window.supabaseJs).createClient(url,key);
-      })();
-      window._sbClient=sb;
-      const ch=sb.channel('room:'+this.roomId,{config:{broadcast:{self:false}}});
-      ch.on('broadcast',{event:'state'},(msg)=>this._onRemoteState(msg.payload))
-        .on('broadcast',{event:'mine'},(msg)=>this._onRemoteMine(msg.payload))
-        .on('presence',{event:'join'},(msg)=>this.showMsg('🔗 プレイヤーが参加！',0x44FF88))
-        .on('presence',{event:'leave'},(msg)=>this.showMsg('🔗 プレイヤーが切断',0xFF8844))
-        .subscribe((status)=>{
-          if(status==='SUBSCRIBED'){
-            this.showMsg('✅ オンライン接続成功！',0x44FF44);
-            ch.track({playerId:this._myId,day:GS.day});
-          }
-        });
-      this._supaChannel=ch;
+      // ホスト: peerId = 'hori-' + roomId
+      // ゲスト: peerId = 'hori-' + roomId + '-' + random
+      const myPeerId = isHost ? 'hori-'+roomId : 'hori-'+roomId+'-g'+Date.now().toString(36);
+      const peer=new Peer(myPeerId,{
+        host:'0.peerjs.com', port:443, path:'/',
+        secure:true, debug:0,
+        config:{iceServers:[{urls:'stun:stun.l.google.com:19302'}]},
+      });
+      this._peer=peer;
+
+      peer.on('open',(id)=>{
+        this._myPeerId=id;
+        if(isHost){
+          this.showMsg('✅ ルーム作成！招待リンクを友達に送ろう',0x44FF44);
+          this.showMsg('👥 友達の接続を待っています...',0x44CCFF);
+          // ゲストからの接続を待つ
+          peer.on('connection',(conn)=>{
+            this._setupPeerConn(conn);
+            this.showMsg('🎮 友達が参加しました！',0x44FF44);
+          });
+        } else {
+          // ゲスト: ホストに接続
+          this.showMsg('🔗 ホストに接続中...',0x44CCFF);
+          const conn=peer.connect('hori-'+roomId,{reliable:false,serialization:'json'});
+          this._setupPeerConn(conn);
+          conn.on('open',()=>{
+            this.showMsg('✅ 接続成功！一緒に掘ろう！',0x44FF44);
+            // ゲストはホストのマップを要求
+            conn.send({type:'request_map',playerId:this._myId});
+          });
+          conn.on('error',(e)=>this.showMsg('❌ 接続失敗: '+e.type,0xFF4444));
+        }
+      });
+
+      peer.on('error',(e)=>{
+        if(e.type==='peer-unavailable'&&!isHost){
+          this.showMsg('❌ ルームが見つかりません: '+roomId,0xFF4444);
+        } else {
+          this.showMsg('⚠️ 接続エラー: '+e.type,0xFF8800);
+        }
+      });
+      peer.on('disconnected',()=>{
+        this.showMsg('🔌 切断されました',0xFF8800);
+        peer.reconnect();
+      });
     }catch(e){
-      this._initSimpleWebRTC();
+      this.showMsg('❌ P2P初期化失敗: '+e.message,0xFF4444);
     }
   }
 
-  _initSimpleWebRTC(){
-    // Supabaseなしの場合: BroadcastChannel (同一タブ間テスト用)
-    try{
-      const bc=new BroadcastChannel('hori_room_'+this.roomId);
-      bc.onmessage=(e)=>{
-        if(e.data.type==='state')this._onRemoteState(e.data);
-        if(e.data.type==='mine')this._onRemoteMine(e.data);
-      };
-      this._broadcastChannel=bc;
-      this.showMsg('🔗 ローカル接続（同一PC）',0x88CCFF);
-    }catch(e){}
+  _setupPeerConn(conn){
+    this._peerConn=conn;
+    conn.on('data',(data)=>{
+      if(!data)return;
+      if(data.type==='state')  this._onRemoteState(data);
+      if(data.type==='mine')   this._onRemoteMine(data);
+      if(data.type==='request_map'&&this.isHost){
+        // ホスト: マップデータを送信
+        conn.send({type:'map_sync', tiles: this.mapData.map(row=>Array.from(row)), playerId:this._myId, seed:GS.day*1337+42});
+      }
+      if(data.type==='map_sync'){
+        // ゲスト: ホストのマップを適用
+        for(let y=0;y<MH;y++) this.mapData[y]=new Uint8Array(data.tiles[y]);
+        this._buildTilemapFromData();
+        this.showMsg('🗺️ マップ同期完了！',0x44FF44);
+      }
+      if(data.type==='chat'){
+        this.showMsg('💬 '+data.msg,0xFFFFAA);
+      }
+    });
+    conn.on('close',()=>{
+      this._peerConn=null;
+      this.showMsg('🔌 相手が切断しました',0xFF8844);
+    });
+  }
+
+  _buildTilemapFromData(){
+    // 既存レイヤー破棄して再構築
+    if(this.layer){this.layer.destroy();}
+    const flatData=[];
+    for(let y=0;y<MH;y++)flatData.push(Array.from(this.mapData[y]));
+    const map=this.make.tilemap({data:flatData,tileWidth:TS,tileHeight:TS});
+    const tileset=map.addTilesetImage('tiles','tiles',TS,TS,0,0);
+    this.layer=map.createLayer(0,tileset,0,0);
+    this.layer.setDepth(1);
+    this.collisionLayer=this.layer;
+    const solidIds=Object.entries(BD).filter(([,d])=>d.solid).map(([id])=>parseInt(id));
+    this.layer.setCollision(solidIds);
+    for(const p of this.players) this.physics.add.collider(p.sprite,this.layer);
+    for(const e of this.enemies) this.physics.add.collider(e.sprite,this.layer);
   }
 
   _broadcastState(){
-    const p=this.players[0];if(!p)return;
+    const p=this.players[0];if(!p||!this._peerConn)return;
     const payload={
       type:'state', playerId:this._myId,
       x:Math.round(p.sprite.x), y:Math.round(p.sprite.y),
       anim:p._animState||'idle', flip:!p.facingRight,
-      hp:p.hp, downed:p.downed,
+      hp:Math.round(p.hp), downed:p.downed,
     };
-    if(this._supaChannel){
-      this._supaChannel.send({type:'broadcast',event:'state',payload});
-    } else if(this._broadcastChannel){
-      this._broadcastChannel.postMessage(payload);
-    }
+    try{this._peerConn.send(payload);}catch(e){}
   }
 
   _broadcastMine(tx,ty){
-    const payload={type:'mine',playerId:this._myId,tx,ty,block:T.AIR};
-    if(this._supaChannel){
-      this._supaChannel.send({type:'broadcast',event:'mine',payload});
-    } else if(this._broadcastChannel){
-      this._broadcastChannel.postMessage(payload);
-    }
+    if(!this._peerConn)return;
+    try{this._peerConn.send({type:'mine',playerId:this._myId,tx,ty,block:T.AIR});}catch(e){}
   }
 
   _broadcastMineRestore(tx,ty,block){
-    const payload={type:'mine',playerId:this._myId,tx,ty,block};
-    if(this._supaChannel){
-      this._supaChannel.send({type:'broadcast',event:'mine',payload});
-    } else if(this._broadcastChannel){
-      this._broadcastChannel.postMessage(payload);
-    }
+    if(!this._peerConn)return;
+    try{this._peerConn.send({type:'mine',playerId:this._myId,tx,ty,block});}catch(e){}
   }
 
   _onRemoteState(data){
