@@ -269,7 +269,11 @@ def process_tiles():
     for ri,(nc,names) in enumerate(rows):
         y0=ri*row_h+HDR; y1=(ri+1)*row_h-6; fw=w//nc
         for ci,name in enumerate(names):
-            save_img(img.crop((ci*fw+8, y0, (ci+1)*fw-8, y1)), f'{name}.png', remove_bg=False)
+            # タイルは背景除去しない: 不透明な正方形として保持
+            # パディング14pxでグリッド枠線を除去
+            cell = img.crop((ci*fw+14, y0, (ci+1)*fw-14, y1))
+            # Pillow で正確なサイズにリサイズ (32x32に統一すると見やすい)
+            save_img(cell, f'{name}.png', remove_bg=False)
 
 # ============================================================
 # SHEET 04: MINERALS

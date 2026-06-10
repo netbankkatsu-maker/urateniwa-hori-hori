@@ -2,16 +2,24 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
 <title>穴掘りCoOp - HORI HORI</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;overflow:hidden;touch-action:none;user-select:none;}
-canvas{display:block;}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;}
+body{touch-action:none;user-select:none;-webkit-user-select:none;
+     position:fixed;top:0;left:0;right:0;bottom:0;}
+canvas{display:block;
+       position:fixed!important;top:0!important;left:0!important;
+       width:100%!important;height:100%!important;}
+#game-container{position:fixed;top:0;left:0;
+  width:100vw!important;height:100vh!important;
+  width:100dvw!important;height:100dvh!important;}
 #orient{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
-background:rgba(0,0,0,.9);color:#fff;font-family:monospace;font-size:22px;
+background:rgba(0,0,0,.95);color:#fff;font-family:monospace;font-size:22px;
 align-items:center;justify-content:center;text-align:center;z-index:9999;flex-direction:column;gap:16px;}
 @media(orientation:portrait)and(max-width:900px){#orient{display:flex;}}
 </style>
@@ -502,14 +510,18 @@ class VirtualPad{
     const DPR=70;
     this.dpX=baseX; this.dpY=baseY; this.dpR=DPR;
 
-    // 右側ボタン: 3ボタン × 大きめ (r=40)
-    const BX=W-80*(playerId===1?0.5:1);  // P2は右寄り調整
-    // 実際のボタン位置 (画面右下)
-    const rightX = W - (playerId===1 ? W/2-10 : 0) - 60;
-    this.digBtn ={x:rightX-45, y:baseY-15, r:40, col:0xFF4422, label:'⛏'};
-    this.bombBtn={x:rightX+30, y:baseY-60, r:32, col:0xFF8800, label:'💣'};
-    this.ropeBtn={x:rightX+30, y:baseY+20, r:32, col:0xDEB887, label:'🪢'};
-    this.retBtn ={x:rightX-45, y:baseY+55, r:32, col:0x4488FF, label:'🏠'};
+    // 右側ボタングループ: baseXの右側にまとめて配置
+    // P1: 右エリアは W の右半分、P2: 右エリアは W の右端
+    const isP2 = (playerId===1);
+    // ボタンのベース位置: D-padの右側 (画面を均等に分けた右エリア)
+    const btnAreaRight = isP2 ? W - 18 : W/2 - 18;
+    const btnAreaCenterX = btnAreaRight - 70;
+    const btnAreaCenterY = baseY;
+    // ダイヤモンド配置: 上=爆弾 下=帰還 左=ロープ 右(大)=掘る
+    this.digBtn ={x:btnAreaRight-30,  y:btnAreaCenterY,     r:42, col:0xFF4422, label:'⛏'};
+    this.bombBtn={x:btnAreaCenterX,   y:btnAreaCenterY-55,  r:32, col:0xFF8800, label:'💣'};
+    this.ropeBtn={x:btnAreaCenterX,   y:btnAreaCenterY+55,  r:32, col:0xDEB887, label:'🪢'};
+    this.retBtn ={x:btnAreaCenterX-60,y:btnAreaCenterY,     r:32, col:0x4488FF, label:'🏠'};
 
     this._buttons=[
       {btn:this.digBtn,  key:'dig'},
@@ -692,6 +704,9 @@ class Player{
       // P2は色合いを変える
       if(id===1) this.sprite.setTint(0xFF9966);
       this.sprite.setScale(0.28);
+      // アルファブレンドで背景グリッドを隠す
+      this.sprite.setAlpha(1);
+      this.sprite.setPipelineData('forceZeroTVerts', false);
     } else {
       const col=id===0?0x4488FF:0xFF6644;
       const g=scene.add.graphics();
@@ -1339,7 +1354,8 @@ class WorldScene extends Phaser.Scene{
   }
 
   create(){
-    this.W=1280; this.H=720;
+    this.W=this.scale.width||window.innerWidth;
+    this.H=this.scale.height||window.innerHeight;
     this.mapData=generateMap(GS.day*1337+42);
     this.players=[];
     this.enemies=[];
@@ -1438,7 +1454,15 @@ class WorldScene extends Phaser.Scene{
     // Camera
     this.cameras.main.setBounds(0,0,MW*TS,MH*TS);
     this.cameras.main.startFollow(this.players[0].sprite,true,0.08,0.08);
-    this.cameras.main.setZoom(1.5);
+    // 画面サイズに応じたズーム: 最低20タイル分表示
+    const zoom = Math.max(1.0, Math.min(2.5, this.W / (20 * TS)));
+    this.cameras.main.setZoom(zoom);
+    // リサイズ時にズームを更新
+    this.scale.on('resize', (gs) => {
+      this.W = gs.width; this.H = gs.height;
+      const nz = Math.max(1.0, Math.min(2.5, gs.width / (20 * TS)));
+      this.cameras.main.setZoom(nz);
+    });
 
     // UI overlay
     this.scene.launch('UI',{world:this});
@@ -2404,7 +2428,8 @@ class UIScene extends Phaser.Scene{
   init(data){this.world=data.world;}
 
   create(){
-    this.W=1280; this.H=720;
+    this.W=this.scale.width||window.innerWidth;
+    this.H=this.scale.height||window.innerHeight;
     this.menuOpen=false;
     this.menuContainer=null;
 
@@ -3025,16 +3050,47 @@ const config={
   },
   scene:[BootScene,TitleScene,WorldScene,UIScene,SummaryScene],
   scale:{
-    mode:Phaser.Scale.FIT,
-    autoCenter:Phaser.Scale.CENTER_BOTH,
-    width:  1280,
-    height: 720,
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    parent: 'game-container',
+    expandParent: true,
   },
   render:{antialias:false,pixelArt:true},
 };
 
 const game=new Phaser.Game(config);
-window._phaserGame=game; // テスト用グローバル公開
+window._phaserGame=game;
+
+// フルスクリーン対応: 最初のタッチ/クリックでフルスクリーン要求
+function requestFS(){
+  const el=document.documentElement;
+  const req=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen;
+  if(req){req.call(el).catch(()=>{});}
+  // iOS Safari: スクロール無効化 (既にCSS設定済み)
+  document.removeEventListener('touchstart',requestFS);
+  document.removeEventListener('click',requestFS);
+}
+document.addEventListener('touchstart',requestFS,{once:true,passive:true});
+document.addEventListener('click',requestFS,{once:true});
+
+// VisualViewport対応 (ノッチ・セーフエリア)
+function updateViewport(){
+  const vv=window.visualViewport;
+  if(!vv)return;
+  const c=document.querySelector('canvas');
+  if(!c)return;
+  c.style.width=vv.width+'px';
+  c.style.height=vv.height+'px';
+  c.style.left=vv.offsetLeft+'px';
+  c.style.top=vv.offsetTop+'px';
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',updateViewport);
+  window.visualViewport.addEventListener('scroll',updateViewport);
+}
+window.addEventListener('resize',()=>{
+  updateViewport();
+});
 
 // Phaser Scale.RESIZE handles resize automatically, but fallback just in case
 window.addEventListener('resize',()=>{
