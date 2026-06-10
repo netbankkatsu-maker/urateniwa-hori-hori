@@ -1482,11 +1482,8 @@ class WorldScene extends Phaser.Scene{
       this.cameras.main.setZoom(nz);
     });
 
-    // UI overlay - stop first to ensure clean restart, then launch
-    try { this.scene.stop('UI'); } catch(e) {}
-    this.time.delayedCall(100, () => {
-      try { this.scene.launch('UI',{world:this}); } catch(e) {}
-    });
+    // UI overlay - 確実な起動のためシーンマネージャーを回避して直接初期化
+    this._initUIScene();
 
     // Lighting overlay
     this._lightCanvas=this.textures.createCanvas('light',this.W,this.H);
@@ -1556,6 +1553,31 @@ class WorldScene extends Phaser.Scene{
 
     this.showMsg(`Day ${GS.day} 開始！掘って稼ごう！`,0x44FF44);
     if(GS.isOnline)this.showMsg('🌐 オンライン接続中... Room: '+this.roomId,0x44FF88);
+  }
+
+  _initUIScene(){
+    // Phaserのシーンマネージャーをバイパスし直接UISceneを初期化
+    const uiScene = this.game.scene.scenes.find(s => s.constructor.name === 'UIScene');
+    if (!uiScene) return;
+    try {
+      // システム状態を強制RUNNING化
+      uiScene.sys.settings.status = 6;
+      uiScene.sys.settings.active = true;
+      uiScene.sys.settings.visible = true;
+      // init+createを手動実行 (べき等: 既にcreate済みならスキップ)
+      uiScene.init({world: this});
+      if (!uiScene.timerText) {
+        uiScene.create();
+      } else {
+        // 既存のUISceneのworld参照を更新
+        uiScene.world = this;
+      }
+      this._uiScene = uiScene;
+      // updateも手動でフック
+      this._uiUpdateHooked = true;
+    } catch(e) {
+      console.warn('UIScene init failed:', e.message);
+    }
   }
 
   _placeBuildingSprites(){
@@ -1697,6 +1719,10 @@ class WorldScene extends Phaser.Scene{
 
   update(time,delta){
     const dt=Math.min(delta/1000,0.05);
+    // UIScene手動update (シーンマネージャーをバイパスしているため)
+    if(this._uiScene && this._uiUpdateHooked) {
+      try { this._uiScene.update(time,delta); } catch(e) { this._uiUpdateHooked=false; }
+    }
     if(this.paused||this.openMenu)return;
 
     // Update players
@@ -2353,34 +2379,36 @@ class WorldScene extends Phaser.Scene{
 
   _pausePhysicsForMenu(){this.physics.pause();}
   _resumePhysicsFromMenu(){if(!this.openMenu)this.physics.resume();}
+  // UIシーン参照取得 (直接参照 or シーンマネージャー)
+  _getUI(){ return this._uiScene || this.scene.get('UI'); }
 
   _openSell(p){
     if(Object.keys(p.inventory).length===0){this.showMsg('持ち物がありません',0xFF8800);return;}
     this.openMenu='sell'; this._pausePhysicsForMenu();
     this.menuData={player:p};
-    this.scene.get('UI').openSellMenu(p);
+    this._getUI().openSellMenu(p);
   }
 
   _openUpgrade(p){
     this.openMenu='upgrade'; this._pausePhysicsForMenu();
     this.menuData={player:p};
-    this.scene.get('UI').openUpgradeMenu(p);
+    this._getUI().openUpgradeMenu(p);
   }
 
   _openQuest(){
     this.openMenu='quest'; this._pausePhysicsForMenu();
-    this.scene.get('UI').openQuestMenu(this.activeQuests);
+    this._getUI().openQuestMenu(this.activeQuests);
   }
 
   _openCraft(p){
     this.openMenu='craft'; this._pausePhysicsForMenu();
     this.menuData={player:p};
-    this.scene.get('UI').openCraftMenu(p);
+    this._getUI().openCraftMenu(p);
   }
 
   _openWarehouse(){
     this.openMenu='warehouse'; this._pausePhysicsForMenu();
-    this.scene.get('UI').openWarehouseMenu(GS.trophies);
+    this._getUI().openWarehouseMenu(GS.trophies);
   }
 
   _refillOxygen(p){
@@ -2392,13 +2420,13 @@ class WorldScene extends Phaser.Scene{
 
   _toggleMenu(type,pid){
     if(this.openMenu===type){this._closeMenu();}
-    else{this.openMenu=type; this._pausePhysicsForMenu(); this.scene.get('UI').openInventoryMenu(this.players[pid]||this.players[0]);}
+    else{this.openMenu=type; this._pausePhysicsForMenu(); this._getUI().openInventoryMenu(this.players[pid]||this.players[0]);}
   }
 
   _closeMenu(){
     this.openMenu=null;
     this._resumePhysicsFromMenu();
-    this.scene.get('UI').closeMenu();
+    this._getUI().closeMenu();
   }
 
   showMsg(text,color=0xFFFFFF){
@@ -2425,7 +2453,7 @@ class WorldScene extends Phaser.Scene{
   _endDay(){
     this.paused=true;
     this.physics.pause();
-    this.scene.get('UI').events.emit('endDay');
+    this._getUI().events.emit('endDay');
     this.time.delayedCall(800,()=>{
       this.scene.stop('UI');
       this.scene.start('Summary',{
@@ -2502,8 +2530,11 @@ class UIScene extends Phaser.Scene{
     };
   }
 
+  // WorldSceneの参照取得 (直接参照優先)
+  _getWorld(){ return this.world || this._getWorld(); }
+
   update(){
-    const world=this.scene.get('World');
+    const world=this._getWorld();
     if(!world||!world.players)return;
 
     // Update player HUDs
@@ -2674,10 +2705,10 @@ class UIScene extends Phaser.Scene{
         const earned=player.sellAll();
         this.add.text(W/2,H/2,`+${earned}G !`,{fontSize:'32px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:4}).setOrigin(.5).setDepth(300);
         this.time.delayedCall(1500,()=>this._clearMenu());
-        this.scene.get('World').showMsg(`売却完了 +${earned}G！`,0xFFD700);
+        this._getWorld().showMsg(`売却完了 +${earned}G！`,0xFFD700);
         GS.trophies.push(...Object.entries(player.inventory).filter(([k])=>ITEMS[k]?.rare).map(([k])=>k));
         // 地上トロフィー表示更新
-        this.scene.get('World')?._updateTrophyDisplay?.();
+        this._getWorld()?._updateTrophyDisplay?.();
       });
       this.menuContainer.add(sellBtn);
     }
@@ -2744,11 +2775,11 @@ class UIScene extends Phaser.Scene{
             if(GS.gold>=bcost){
               GS.gold-=bcost;
               GS.baseLevel[baseKey]=(GS.baseLevel[baseKey]||0)+1;
-              this.scene.get('World').showMsg(`⬆️ 拠点強化: ${u.name} Lv${GS.baseLevel[baseKey]}!`,0x44FF44);
+              this._getWorld().showMsg(`⬆️ 拠点強化: ${u.name} Lv${GS.baseLevel[baseKey]}!`,0x44FF44);
               this.openUpgradeMenu(player);
             }
           } else if(player.applyUpgrade(u.key)){
-            this.scene.get('World').showMsg(`⬆️ ${u.name} → Lv${player.upgrades[u.key]}!`,0x44FF44);
+            this._getWorld().showMsg(`⬆️ ${u.name} → Lv${player.upgrades[u.key]}!`,0x44FF44);
             this.openUpgradeMenu(player);
           }
         });
@@ -2833,7 +2864,7 @@ class UIScene extends Phaser.Scene{
         btn.on('pointerdown',()=>{
           for(const[k,v]of Object.entries(r.ing))player.removeItem(k,v);
           player.addItem(r.out,r.qty);
-          const world=this.scene.get('World');
+          const world=this._getWorld();
           world.showMsg(`🔨 ${r.name} 作成！`,r.special?0x00FFCC:0x8844FF);
           // 謎の機械完成トリガー
           if(r.special&&!GS.machineCompleted){
@@ -2888,8 +2919,8 @@ class UIScene extends Phaser.Scene{
           .setInteractive();
         useBtn.on('pointerdown',()=>{
           if(k==='heal')player.heal();
-          else if(k==='rope')player.placeRope(this.scene.get('World').mapData);
-          else if(k==='bomb')player.useBomb(this.scene.get('World').mapData);
+          else if(k==='rope')player.placeRope(this._getWorld().mapData);
+          else if(k==='bomb')player.useBomb(this._getWorld().mapData);
           else if(k==='beacon'){player.removeItem('beacon');player.sprite.setPosition(Math.floor(MW/2)*TS,8*TS);}
           this.openInventoryMenu(player);
         });
@@ -2936,7 +2967,7 @@ class UIScene extends Phaser.Scene{
         this.menuContainer.add(cellBg);
         // アイテム画像 or 色丸
         const imgKey=k.startsWith('ore_')?k:(k+'_item');
-        if(this.scene.get('World')?.textures?.exists(imgKey)){
+        if(this._getWorld()?.textures?.exists(imgKey)){
           const img=this.add.image(cx,cy+4,imgKey).setScale(0.12).setOrigin(.5);
           this.menuContainer.add(img);
         } else {
@@ -2970,7 +3001,7 @@ class UIScene extends Phaser.Scene{
 
   _closeMenuAndWorld(){
     this._clearMenu();
-    const world=this.scene.get('World');
+    const world=this._getWorld();
     if(world){world.openMenu=null;world._resumePhysicsFromMenu();}
   }
 }
