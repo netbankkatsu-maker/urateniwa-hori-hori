@@ -1482,8 +1482,11 @@ class WorldScene extends Phaser.Scene{
       this.cameras.main.setZoom(nz);
     });
 
-    // UI overlay
-    this.scene.launch('UI',{world:this});
+    // UI overlay - stop first to ensure clean restart, then launch
+    try { this.scene.stop('UI'); } catch(e) {}
+    this.time.delayedCall(100, () => {
+      try { this.scene.launch('UI',{world:this}); } catch(e) {}
+    });
 
     // Lighting overlay
     this._lightCanvas=this.textures.createCanvas('light',this.W,this.H);
@@ -2445,9 +2448,11 @@ class UIScene extends Phaser.Scene{
   constructor(){super('UI');}
   init(data){this.world=data.world;}
 
+  // 常に最新のスケールを返す動的プロパティ
+  get W(){ return this.scale.width || window.innerWidth || 1280; }
+  get H(){ return this.scale.height || window.innerHeight || 720; }
+
   create(){
-    this.W=this.scale.width||window.innerWidth;
-    this.H=this.scale.height||window.innerHeight;
     this.menuOpen=false;
     this.menuContainer=null;
 
