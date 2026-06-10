@@ -17,6 +17,7 @@ align-items:center;justify-content:center;text-align:center;z-index:9999;flex-di
 </style>
 </head>
 <body>
+<div id="game-container" style="width:100vw;height:100vh;overflow:hidden;position:fixed;top:0;left:0;"></div>
 <div id="orient">
   <div style="font-size:48px">📱➡️</div>
   <div>横向きにしてください<br><small>Please rotate to landscape</small></div>
@@ -558,7 +559,7 @@ class Player{
     this.oxygen=100; this.maxOxygen=100;
     this.battery=100; this.maxBattery=100;
     this.weight=0; this.maxWeight=30;
-    this.mineSpeed=1; this.moveSpeed=160;
+    this.mineSpeed=1; this._baseMineSpeed=1; this.moveSpeed=160;
     this.lightRange=180;
     this.inventory={}; // item->count
     this.gold=0;
@@ -1140,7 +1141,7 @@ class WorldScene extends Phaser.Scene{
   init(data){this.numPlayers=data.numPlayers||2;}
 
   create(){
-    this.W=this.scale.width; this.H=this.scale.height;
+    this.W=1280; this.H=720;
     this.mapData=generateMap(GS.day*1337+42);
     this.players=[];
     this.enemies=[];
@@ -1150,9 +1151,14 @@ class WorldScene extends Phaser.Scene{
     GS._qStart={earn:GS.totalEarned};
     GS._rescueDone=false;
     this.dayTimeLeft=300; // 5 min per day
+    this.nightMode=false;      // 夜モード (残り90秒以下)
+    this.earthquakeTimer=0;    // 地震タイマー
+    this.fallingRocks=[];      // 落石リスト
     this.paused=false;
-    this.openMenu=null; // 'sell'|'upgrade'|'craft'|'quest'|'inventory'|'summary'
+    this.openMenu=null;
     this.menuData={};
+    this.bossSpawned=false;
+    this.bossDefeated=false;
 
     // Physics world bounds
     this.physics.world.setBounds(0,0,MW*TS,MH*TS);
@@ -1225,19 +1231,12 @@ class WorldScene extends Phaser.Scene{
     // TAB = toggle menu
     this.input.keyboard.on('keydown-TAB',()=>this._toggleMenu('inventory',0));
 
-    // Mobile virtual pads
-    this.pads=[];
-    if(this.sys.game.device.input.touch){
-      this.pads.push(new VirtualPad(this,80,this.H-80,0));
-      if(this.numPlayers>1){
-        this.pads.push(new VirtualPad(this,this.W/2+80,this.H-80,1));
-      }
-    }
+    // バーチャルパッドは supplies の後で初期化
 
     // Camera
     this.cameras.main.setBounds(0,0,MW*TS,MH*TS);
     this.cameras.main.startFollow(this.players[0].sprite,true,0.08,0.08);
-    this.cameras.main.setZoom(Math.min(1.5,this.W/(24*TS)));
+    this.cameras.main.setZoom(1.5);
 
     // UI overlay
     this.scene.launch('UI',{world:this});
@@ -1253,13 +1252,43 @@ class WorldScene extends Phaser.Scene{
     this.time.addEvent({delay:1000,repeat:this.dayTimeLeft,callback:()=>{
       this.dayTimeLeft--;
       if(this.dayTimeLeft<=0)this._endDay();
+      if(this.dayTimeLeft===90){
+        this.nightMode=true;
+        this.showMsg('🌙 夜になった！地下が危険になる！',0xFF8800);
+        // 敵を全員強化
+        for(const e of this.enemies){if(!e.dead){e.dmg=Math.ceil(e.dmg*1.5);e.speed=Math.ceil(e.speed*1.3);}}
+      }
       if(this.dayTimeLeft===60)this.showMsg('⏰ あと1分！',0xFFAA00);
       if(this.dayTimeLeft===30)this.showMsg('⚠️ 急いで戻れ！',0xFF4400);
+      // 地震 (毎60秒)
+      if(this.dayTimeLeft%60===0&&this.dayTimeLeft<270){this._triggerEarthquake();}
+      // 自動採掘機 (30秒毎)
+      if(this.dayTimeLeft%30===0&&GS.baseLevel.autoMine>0){this._autoMine();}
+      // 自動売却機 (60秒毎)
+      if(this.dayTimeLeft%60===0&&GS.baseLevel.autoSell>0){this._autoSell();}
     }});
+
+    // 落石イベント (5秒毎)
+    this.time.addEvent({delay:5000,loop:true,callback:()=>this._spawnFallingRock()});
+
+    // ボス出現チェック (最深部バイオームに入ると出現)
+    this.time.addEvent({delay:3000,loop:true,callback:()=>this._checkBossSpawn()});
 
     // Start with supplies
     for(const p of this.players){
       p.addItem('rope',3); p.addItem('heal',2); p.addItem('battery',2); p.addItem('bomb',1);
+    }
+
+    // モバイル: P1・P2それぞれバーチャルパッド
+    this.pads=[];
+    if(this.sys.game.device.input.touch){
+      const H=this.H;
+      // P1 (上半分)
+      this.pads.push(new VirtualPad(this,80,H/4*3,0));
+      // P2がいれば追加 (下半分 or 右側)
+      if(this.numPlayers>1){
+        this.pads.push(new VirtualPad(this,this.W/2+80,H/4*3,1));
+      }
     }
 
     this.showMsg(`Day ${GS.day} 開始！掘って稼ごう！`,0x44FF44);
@@ -1420,6 +1449,23 @@ class WorldScene extends Phaser.Scene{
 
     // Check interaction proximity (surface buildings)
     this._checkBuildingProximity();
+
+    // 置き去りペナルティチェック
+    this._checkLeavingPartner();
+
+    // 落石更新
+    this._updateFallingRocks(dt);
+
+    // 近接採掘ボーナス (2人が80px以内)
+    if(this.players.length===2){
+      const d=Math.hypot(
+        this.players[0].sprite.x-this.players[1].sprite.x,
+        this.players[0].sprite.y-this.players[1].sprite.y);
+      const bonus=d<80?1.5:1.0;
+      this.players[0].mineSpeed=this.players[0]._baseMineSpeed*(bonus*(1+this.players[0].upgrades.pickaxe*0.25));
+      this.players[1].mineSpeed=this.players[1]._baseMineSpeed*(bonus*(1+this.players[1].upgrades.pickaxe*0.25));
+      if(d<80&&Math.random()<0.005)this.showMsg('⚒️ 協力ボーナス！採掘速度x1.5',0xFFCC44);
+    }
   }
 
   _keysState(kb){
@@ -1528,6 +1574,185 @@ class WorldScene extends Phaser.Scene{
     }
     this.showMsg('🔓 扉が開いた！',0x44FF44);
     this.cameras.main.flash(200,0,255,0,false);
+  }
+
+  // ================================================================
+  // 夜モード・地震・落石・ボス・自動機器
+  // ================================================================
+
+  _triggerEarthquake(){
+    if(this.paused)return;
+    this.cameras.main.shake(1500,0.018);
+    this.showMsg('🌋 地震！崩落に注意！',0xFF6600);
+    // 地下天井の土ブロックをランダム崩落させる
+    const rng=()=>Math.random();
+    for(let i=0;i<12;i++){
+      const tx=2+Math.floor(rng()*(MW-4));
+      const ty=BIOMES[0].y1+5+Math.floor(rng()*50);
+      if(this.mapData[ty]&&this.mapData[ty][tx]===T.AIR){
+        // 上のブロックが土なら落とす
+        if(this.mapData[ty-1]&&this.mapData[ty-1][tx]===T.DIRT){
+          this._spawnRockAt(tx,ty-1);
+        }
+      }
+    }
+  }
+
+  _spawnFallingRock(){
+    if(this.paused||this.dayTimeLeft<10)return;
+    // 深さ20タイル以下かつ天井がある場所からランダムに落石
+    const tx=2+Math.floor(Math.random()*(MW-4));
+    // プレイヤー近辺
+    for(const p of this.players){
+      if(p.downed)continue;
+      const ptx=Math.floor(p.sprite.x/TS);
+      const pty=Math.floor(p.sprite.y/TS);
+      if(pty<BIOMES[0].y1+5)continue;
+      const rtx=ptx+Math.floor(Math.random()*9)-4;
+      for(let dy=-5;dy<0;dy++){
+        const bt=this.mapData[pty+dy]?.[rtx];
+        if(bt===T.STONE||bt===T.DIRT||bt===T.HARD){
+          this._spawnRockAt(rtx,pty+dy);
+          break;
+        }
+      }
+    }
+  }
+
+  _spawnRockAt(tx,ty){
+    const x=tx*TS+TS/2, y=ty*TS;
+    const g=this.add.graphics().setDepth(9);
+    g.fillStyle(0x808080,1);g.fillCircle(0,0,8);
+    const rock=this.physics.add.existing(g);
+    rock.body.setGravityY(400);
+    rock.setPosition(x,y);
+    this.fallingRocks.push(rock);
+    // 3秒後に消去
+    this.time.delayedCall(3000,()=>{
+      if(rock.active){rock.destroy();this.fallingRocks=this.fallingRocks.filter(r=>r!==rock);}
+    });
+  }
+
+  _updateFallingRocks(dt){
+    for(const rock of this.fallingRocks){
+      if(!rock.active)continue;
+      // プレイヤーと衝突判定
+      for(const p of this.players){
+        if(p.downed)continue;
+        const dx=Math.abs(rock.x-p.sprite.x);
+        const dy=Math.abs(rock.y-p.sprite.y);
+        if(dx<16&&dy<16){
+          p.hp=Math.max(0,p.hp-12);
+          rock.destroy();
+          this.fallingRocks=this.fallingRocks.filter(r=>r!==rock);
+          this.showMsg('💥 落石！',0xFF6600);
+          if(p.hp<=0)p.downed=true;
+          break;
+        }
+      }
+      // 地面に当たったら止まる
+      const ty=Math.floor(rock.y/TS);
+      const tx=Math.floor(rock.x/TS);
+      if(this.mapData[ty]&&BD[this.mapData[ty][tx]]?.solid){
+        rock.body.setVelocity(0,0);
+        rock.body.setGravityY(0);
+      }
+    }
+  }
+
+  _checkBossSpawn(){
+    if(this.bossSpawned||this.bossDefeated||GS.bossDefeated)return;
+    for(const p of this.players){
+      const depth=Math.floor(p.sprite.y/TS)-BIOMES[0].y1;
+      if(depth>=240){
+        this._spawnBoss();
+        break;
+      }
+    }
+  }
+
+  _spawnBoss(){
+    this.bossSpawned=true;
+    // ボスを最深部中央に配置
+    const bossX=Math.floor(MW/2)*TS;
+    const bossY=(BIOMES[8].y0+10)*TS;
+    const boss=new Enemy(this,bossX,bossY,'boss');
+    boss.hp=500; boss.maxHp=500; boss.dmg=35; boss.speed=80;
+    this.physics.add.collider(boss.sprite,this.collisionLayer);
+    this.enemies.push(boss);
+    this._bossRef=boss;
+    this.showMsg('💀 ボスが出現！！',0xFF0000);
+    this.cameras.main.flash(600,255,0,0,false);
+    this.cameras.main.shake(800,0.025);
+    // ボス撃破検出
+    this.time.addEvent({delay:1000,loop:true,callback:()=>{
+      if(boss.dead&&!this.bossDefeated){
+        this.bossDefeated=true; GS.bossDefeated=true;
+        GS.gold+=5000;
+        this.showMsg('🏆 ボス撃破！+5000G！目標達成！',0xFFD700);
+        this.cameras.main.flash(1000,255,215,0,false);
+      }
+    }});
+  }
+
+  _autoMine(){
+    // 自動採掘機: 深い鉱石を自動収集
+    const items=['copper','iron'];
+    const item=items[Math.floor(Math.random()*items.length)];
+    GS.gold+=Math.floor(ITEMS[item].sell*(1+GS.baseLevel.autoMine*0.2));
+    this.showMsg(`🤖 自動採掘: ${ITEMS[item].name}採取`,0x2ECC71);
+  }
+
+  _autoSell(){
+    // 自動売却機: 最初のプレイヤーのアイテムを一部売却
+    const p=this.players[0];
+    if(!p)return;
+    let earned=0;
+    const sellLimit=GS.baseLevel.autoSell*3;
+    let count=0;
+    for(const[k,v]of Object.entries(p.inventory)){
+      if(ITEMS[k]&&ITEMS[k].sell>0&&count<sellLimit){
+        earned+=ITEMS[k].sell;
+        p.removeItem(k,1);
+        count++;
+      }
+    }
+    if(earned>0){GS.gold+=earned; this.showMsg(`💰 自動売却: +${earned}G`,0xFFD700);}
+  }
+
+  _checkLeavingPartner(){
+    if(this.players.length<2)return;
+    const [p1,p2]=this.players;
+    const p1Surface=p1.sprite.y/TS<BIOMES[0].y1+2;
+    const p2Surface=p2.sprite.y/TS<BIOMES[0].y1+2;
+    // 片方が地上、片方が地下かつどちらもダウンしていない
+    if(p1Surface&&!p2Surface&&!p1.downed&&!p2.downed){
+      if(!this._leaveWarned){
+        this._leaveWarned=true;
+        this.showMsg('⚠️ 仲間を置いて帰るとペナルティ！',0xFF4444);
+        this.time.delayedCall(5000,()=>{
+          if(p1.sprite.y/TS<BIOMES[0].y1+2&&p2.sprite.y/TS>BIOMES[0].y1+2){
+            GS.gold=Math.floor(GS.gold*0.85);
+            this.showMsg('💸 置き去りペナルティ！ゴールド-15%',0xFF0000);
+          }
+          this._leaveWarned=false;
+        });
+      }
+    } else if(p2Surface&&!p1Surface&&!p1.downed&&!p2.downed){
+      if(!this._leaveWarned){
+        this._leaveWarned=true;
+        this.showMsg('⚠️ 仲間を置いて帰るとペナルティ！',0xFF4444);
+        this.time.delayedCall(5000,()=>{
+          if(p2.sprite.y/TS<BIOMES[0].y1+2&&p1.sprite.y/TS>BIOMES[0].y1+2){
+            GS.gold=Math.floor(GS.gold*0.85);
+            this.showMsg('💸 置き去りペナルティ！ゴールド-15%',0xFF0000);
+          }
+          this._leaveWarned=false;
+        });
+      }
+    } else {
+      this._leaveWarned=false;
+    }
   }
 
   _checkBuildingProximity(){
@@ -1675,7 +1900,7 @@ class UIScene extends Phaser.Scene{
   init(data){this.world=data.world;}
 
   create(){
-    this.W=this.scale.width; this.H=this.scale.height;
+    this.W=1280; this.H=720;
     this.menuOpen=false;
     this.menuContainer=null;
 
@@ -1751,10 +1976,18 @@ class UIScene extends Phaser.Scene{
     const col=world.dayTimeLeft<60?'#FF4444':world.dayTimeLeft<120?'#FFAA00':'#FFFFFF';
     this.timerText.setText(`Day ${GS.day}  ⏱ ${m}:${String(s).padStart(2,'0')}`).setColor(col);
 
-    // Biome
+    // Biome + 夜モード
     const camY=world.cameras.main.scrollY;
     const b=getBiome(Math.floor(camY/TS));
-    this.biomeText.setText(`【${b.name}】`);
+    const nightTag=world.nightMode?'  🌙夜モード危険！':'';
+    this.biomeText.setText(`【${b.name}】${nightTag}`);
+    if(world.nightMode) this.biomeText.setColor('#FF6600');
+    else this.biomeText.setColor('#CCCCCC');
+
+    // ボス出現警告
+    if(world.bossSpawned&&!world.bossDefeated){
+      this.timerText.setColor('#FF0000');
+    }
 
     // Interaction hint
     this.hintText.setText(world._nearBldgLabel||'');
@@ -1880,20 +2113,28 @@ class UIScene extends Phaser.Scene{
     this.menuContainer.add(this.add.text(pw/2,38,`所持金: ${GS.gold}G`,{fontSize:'13px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5));
 
     const upgrades=[
-      {key:'hp',    name:'❤️  体力UP',        desc:'+20 HP'},
-      {key:'stamina',name:'⚡ スタミナUP',    desc:'+20 SP'},
-      {key:'weight', name:'🎒 重量UP',         desc:'+10 kg'},
-      {key:'speed',  name:'👟 移動速度UP',     desc:'+20 px/s'},
-      {key:'light',  name:'🔦 ライト強化',     desc:'+40 range'},
-      {key:'pickaxe',name:'⛏  ツルハシ強化',   desc:'+25% speed'},
-      {key:'drill',  name:'🔩 ドリル強化',     desc:'+area'},
-      {key:'bomb',   name:'💣 爆弾強化',       desc:'+radius'},
+      {key:'hp',     name:'❤️  体力UP',       desc:'+20 HP',    player:true},
+      {key:'stamina',name:'⚡ スタミナUP',    desc:'+20 SP',    player:true},
+      {key:'weight', name:'🎒 重量UP',        desc:'+10 kg',    player:true},
+      {key:'speed',  name:'👟 移動速度UP',    desc:'+20 px/s',  player:true},
+      {key:'light',  name:'🔦 ライト強化',    desc:'+40 range', player:true},
+      {key:'pickaxe',name:'⛏  ツルハシ強化',  desc:'+25% speed',player:true},
+      {key:'drill',  name:'🔩 ドリル強化',    desc:'+area',     player:true},
+      {key:'bomb',   name:'💣 爆弾強化',      desc:'+radius',   player:true},
+      // 拠点強化
+      {key:'base_sell',  name:'🏪 売却所強化',desc:'+10% 売値', base:true},
+      {key:'base_auto',  name:'🤖 自動採掘機',desc:'30秒毎採掘', base:true},
+      {key:'base_autosell',name:'💸 自動売却機',desc:'60秒毎売却',base:true},
     ];
 
     let y=60;
     for(const u of upgrades){
-      const lv=player.upgrades[u.key]||0;
-      const cost=player._upgCost(u.key);
+      const lv=u.base
+        ? (GS.baseLevel[u.key==='base_sell'?'sell':(u.key==='base_auto'?'autoMine':'autoSell')]||0)
+        : (player.upgrades[u.key]||0);
+      const cost=u.base
+        ? Math.floor(100*Math.pow(2,lv))
+        : player._upgCost(u.key);
       const canAfford=GS.gold>=cost;
       const rowBg=this.add.graphics();
       rowBg.fillStyle(canAfford?0x223322:0x222222,.8);
@@ -1908,9 +2149,19 @@ class UIScene extends Phaser.Scene{
       if(canAfford){
         btn.setInteractive();
         btn.on('pointerdown',()=>{
-          if(player.applyUpgrade(u.key)){
+          if(u.base){
+            // 拠点強化
+            const baseKey=u.key==='base_sell'?'sell':(u.key==='base_auto'?'autoMine':'autoSell');
+            const bcost=100*Math.pow(2,(GS.baseLevel[baseKey]||0));
+            if(GS.gold>=bcost){
+              GS.gold-=bcost;
+              GS.baseLevel[baseKey]=(GS.baseLevel[baseKey]||0)+1;
+              this.scene.get('World').showMsg(`⬆️ 拠点強化: ${u.name} Lv${GS.baseLevel[baseKey]}!`,0x44FF44);
+              this.openUpgradeMenu(player);
+            }
+          } else if(player.applyUpgrade(u.key)){
             this.scene.get('World').showMsg(`⬆️ ${u.name} → Lv${player.upgrades[u.key]}!`,0x44FF44);
-            this.openUpgradeMenu(player); // refresh
+            this.openUpgradeMenu(player);
           }
         });
       }
@@ -2138,12 +2389,32 @@ class SummaryScene extends Phaser.Scene{
       this.add.text(W/2,y,`🗺️ 地図の欠片: ${GS.mapPieces}/5`,{fontSize:'13px',color:'#FFFF00',fontFamily:'monospace'}).setOrigin(.5);
       y+=24;
     }
+    if(GS.bossDefeated){
+      y+=6;
+      this.add.text(W/2,y,'💀 ボス撃破済！',{fontSize:'16px',color:'#FF4444',fontFamily:'monospace',stroke:'#000',strokeThickness:2}).setOrigin(.5);
+      y+=28;
+    }
+    // 深さランキング
+    y+=6;
+    this.add.text(W/2,y,`🏆 累計最深記録: ${GS.deepestReached}m`,{fontSize:'13px',color:'#AAD4FF',fontFamily:'monospace'}).setOrigin(.5);
+    y+=22;
+    this.add.text(W/2,y,`📊 総稼ぎ: ${GS.totalEarned}G`,{fontSize:'13px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5);
+    y+=22;
+    this.add.text(W/2,y,`📋 完了クエスト: ${GS.questsDone}`,{fontSize:'13px',color:'#FF8844',fontFamily:'monospace'}).setOrigin(.5);
+    y+=22;
 
     y+=20;
     GS.day++;
-    if(GS.day>GS.maxDay){
-      this.add.text(W/2,y,'🎉 ゲームクリア！最深部まで到達！',{fontSize:'18px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:3}).setOrigin(.5);
-      y+=40;
+    // クリア条件: 最深部到達(240m以上) or ボス撃破
+    if(GS.bossDefeated||GS.deepestReached>=240){
+      this.cameras.main.flash(800,255,215,0);
+      this.add.text(W/2,y,'🎉 目標達成！謎の地下施設を解明！',{fontSize:Math.min(18,W/28)+'px',color:'#FFD700',fontFamily:'monospace',stroke:'#000',strokeThickness:3}).setOrigin(.5);
+      y+=36;
+      this.add.text(W/2,y,'「地下の正体は古代文明の自動採掘機だった...」',{fontSize:'11px',color:'#AAA',fontFamily:'monospace'}).setOrigin(.5);
+      y+=28;
+    } else if(GS.day>GS.maxDay){
+      this.add.text(W/2,y,`Day ${GS.maxDay} 終了 - ${GS.deepestReached}m到達`,{fontSize:'15px',color:'#AAA',fontFamily:'monospace'}).setOrigin(.5);
+      y+=28;
     }
 
     // Next day button
@@ -2166,8 +2437,6 @@ class SummaryScene extends Phaser.Scene{
 // ================================================================
 const config={
   type:Phaser.AUTO,
-  width:window.innerWidth,
-  height:window.innerHeight,
   backgroundColor:'#0a0a1e',
   physics:{
     default:'arcade',
@@ -2175,17 +2444,19 @@ const config={
   },
   scene:[BootScene,TitleScene,WorldScene,UIScene,SummaryScene],
   scale:{
-    mode:Phaser.Scale.RESIZE,
+    mode:Phaser.Scale.FIT,
     autoCenter:Phaser.Scale.CENTER_BOTH,
+    width:  1280,
+    height: 720,
   },
   render:{antialias:false,pixelArt:true},
 };
 
 const game=new Phaser.Game(config);
 
-// Handle resize
+// Phaser Scale.RESIZE handles resize automatically, but fallback just in case
 window.addEventListener('resize',()=>{
-  game.scale.resize(window.innerWidth,window.innerHeight);
+  // Scale.RESIZE does this automatically
 });
 </script>
 </body>
