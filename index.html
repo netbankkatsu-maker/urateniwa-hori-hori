@@ -195,7 +195,7 @@ const GS={
   trophies:[], trophyDisplay:[],
   isOnline:false, onlineRoom:null, isHost:false,
   mapPieces:0,
-  mechParts:0,
+  mechParts:0, machineCompleted:false,
   bossDefeated:false,
   deepestReached:0,
   questsDone:0,
@@ -691,31 +691,50 @@ class Player{
     }
 
     // Oxygen (when in water)
+    // ① 水没エリア: 酸素急速消費→HP減少→ダウン
     const inWater=map[ty]&&map[ty][tx]===T.WATER;
     if(inWater){
-      this.oxygen=Math.max(0,this.oxygen-dt*8);
-      if(this.oxygen<=0){this.hp=Math.max(0,this.hp-dt*15);}
+      this.oxygen=Math.max(0,this.oxygen-dt*12);
+      if(this.oxygen<=0){
+        this.hp=Math.max(0,this.hp-dt*20);
+        if(!this._warnedOx){this._warnedOx=true;this.scene.showMsg(`🌊 P${this.id+1} 水没！酸素切れ！`,0xFF4444);}
+      }
     } else if(this.sprite.y/TS<BIOMES[0].y1+2){
-      this.oxygen=Math.min(this.maxOxygen,this.oxygen+dt*20);
+      this.oxygen=Math.min(this.maxOxygen,this.oxygen+dt*25);
+      this._warnedOx=false;
     } else {
+      // ① 酸素切れハザード: 地下で酸素消費、0になるとHP減少
       this.oxygen=Math.max(0,this.oxygen-dt*1.5);
-      if(this.oxygen<=0)this.hp=Math.max(0,this.hp-dt*8);
-      // Use oxygen tank if available
-      if(this.oxygen<5&&this.inventory.oxygen>0){this.removeItem('oxygen');this.oxygen=this.maxOxygen;}
+      if(this.oxygen<=0){
+        this.hp=Math.max(0,this.hp-dt*8);
+        if(!this._warnedOx){this._warnedOx=true;this.scene.showMsg(`😵 P${this.id+1} 酸素切れ！HP減少中！`,0xFF8800);}
+      } else { this._warnedOx=false; }
+      if(this.oxygen<5&&this.inventory.oxygen>0){this.removeItem('oxygen');this.oxygen=this.maxOxygen;this.scene.showMsg(`🫙 P${this.id+1} 酸素ボンベ使用`,0x87CEEB);}
     }
 
-    // Battery
+    // ② バッテリー切れ: 暗闇ペナルティ・ダメージ増加
     this.battery=Math.max(0,this.battery-dt*1);
-    if(this.battery<=0)this.lightRange=60;
-    else this.lightRange=180+this.upgrades.light*40;
-    if(this.battery<5&&this.inventory.battery>0){this.removeItem('battery');this.battery=this.maxBattery;}
+    if(this.battery<=0){
+      this.lightRange=40; // 極狭い視野
+      if(!this._warnedBat){this._warnedBat=true;this.scene.showMsg(`🔦 P${this.id+1} バッテリー切れ！暗闇で敵が強くなる！`,0xFF8800);}
+      // バッテリー切れ中は敵のダメージ増加 (scene側で制御)
+      this._batteryDead=true;
+    } else {
+      this.lightRange=180+this.upgrades.light*40;
+      this._batteryDead=false;
+      this._warnedBat=false;
+    }
+    if(this.battery<5&&this.inventory.battery>0){this.removeItem('battery');this.battery=this.maxBattery;this.scene.showMsg(`🔋 P${this.id+1} 電池交換`,0xFFD700);}
 
-    // Lava damage
+    // ③ マグマダメージ
     if(map[ty]&&map[ty][tx]===T.LAVA){this.hp=Math.max(0,this.hp-dt*30);}
-    // Gas damage
-    if(map[ty]&&map[ty][tx]===T.GAS){this.hp=Math.max(0,this.hp-dt*5);}
+    // ④ 毒ガスエリアダメージ (T.GAS ブロック)
+    if(map[ty]&&map[ty][tx]===T.GAS){
+      this.hp=Math.max(0,this.hp-dt*5);
+      if(!this._warnedGas){this._warnedGas=true;this.scene.showMsg(`☠️ P${this.id+1} 毒ガス！HP減少！`,0x7CFC00);}
+    } else { this._warnedGas=false; }
 
-    // Downed?
+    // ダウン判定
     if(this.hp<=0){this.hp=0;this.downed=true;this.downTimer=15;}
 
     // Deepest
@@ -1235,6 +1254,10 @@ class WorldScene extends Phaser.Scene{
     // 地上建物スプライト
     this._placeBuildingSprites();
 
+    // ⑧ 地上の倉庫前にトロフィー配置
+    this._trophyContainer=this.add.container(0,0).setDepth(3);
+    this._updateTrophyDisplay();
+
     // Spawn players
     const spawnX=Math.floor(MW/2)*TS;
     const spawnY=(BIOMES[0].y1-2)*TS;
@@ -1399,6 +1422,36 @@ class WorldScene extends Phaser.Scene{
         const frame=this.textures.getFrame(b.key);
         if(frame) img.setScale(targetH / frame.realHeight);
       }
+    }
+  }
+
+  // ⑧ 倉庫前にトロフィーを実際のゲーム世界に配置表示
+  _updateTrophyDisplay(){
+    if(!this._trophyContainer)return;
+    this._trophyContainer.removeAll(true);
+    if(!GS.trophies||GS.trophies.length===0)return;
+    const sy=(BIOMES[0].y1-1)*TS;
+    const warehouseX=29*TS;
+    const counts={};
+    for(const t of GS.trophies)counts[t]=(counts[t]||0)+1;
+    let i=0;
+    for(const[item,cnt]of Object.entries(counts)){
+      if(i>=8)break;
+      const x=warehouseX+i*22, y=sy-8;
+      const imgKey=item.startsWith('ore_')?item:item+'_item';
+      if(this.textures.exists(imgKey)){
+        const img=this.add.image(x,y,imgKey).setScale(0.09).setOrigin(.5,1).setDepth(3);
+        this._trophyContainer.add(img);
+      } else {
+        const col=parseInt((ITEMS[item]?.col||'#FFD700').replace('#',''),16);
+        this._trophyContainer.add(this.add.circle(x,y,7,col).setDepth(3));
+      }
+      if(cnt>1)this._trophyContainer.add(
+        this.add.text(x,y-12,'×'+cnt,{fontSize:'8px',color:'#FFD700',fontFamily:'monospace'}).setOrigin(.5,1).setDepth(3));
+      i++;
+    }
+    if(GS.machineCompleted){
+      this._trophyContainer.add(this.add.text(warehouseX-30,(BIOMES[0].y1-2)*TS,'🤖',{fontSize:'18px'}).setDepth(3));
     }
   }
 
@@ -1611,7 +1664,29 @@ class WorldScene extends Phaser.Scene{
         this._openChest(tx,ty,player);
       } else {
         player.addItem(def.drop,1);
-        // Rare discovery effect
+
+        // ⑤ 機械部品カウント → 5個で謎の機械完成
+        if(def.drop==='machine'){
+          GS.mechParts++;
+          this.showMsg(`⚙️ 機械部品 ${GS.mechParts}/5 取得！`,0x2ECC71);
+          if(GS.mechParts>=5&&!GS.machineCompleted){
+            GS.machineCompleted=true;
+            this.time.delayedCall(500,()=>{
+              this.cameras.main.flash(1200,0,200,255,false);
+              this.showMsg('🤖 謎の機械が完成した！「これは古代の自動採掘機だ！」',0x2ECC71);
+              this.time.delayedCall(2000,()=>this.showMsg('📖 地下の正体が解明された！+3000G',0xFFD700));
+              GS.gold+=3000; GS.totalEarned+=3000;
+            });
+          }
+        }
+
+        // ⑥ 巨大鉱石持ち帰り (deepcrystal/ore_giant は超重いが高価値)
+        if(def.drop==='deepcrystal'){
+          this.showMsg('💎 巨大鉱石発見！地上に持ち帰ると高額で売れる！',0x8800FF);
+          this.cameras.main.flash(400,136,0,255,false);
+        }
+
+        // レア発見演出
         if(ITEMS[def.drop]&&ITEMS[def.drop].rare){
           this.showMsg(`✨ レアアイテム発見: ${ITEMS[def.drop].name}!`,0xFFD700);
           this.cameras.main.flash(300,255,215,0,false);
@@ -2386,6 +2461,8 @@ class UIScene extends Phaser.Scene{
         this.time.delayedCall(1500,()=>this._clearMenu());
         this.scene.get('World').showMsg(`売却完了 +${earned}G！`,0xFFD700);
         GS.trophies.push(...Object.entries(player.inventory).filter(([k])=>ITEMS[k]?.rare).map(([k])=>k));
+        // 地上トロフィー表示更新
+        this.scene.get('World')?._updateTrophyDisplay?.();
       });
       this.menuContainer.add(sellBtn);
     }
@@ -2512,13 +2589,15 @@ class UIScene extends Phaser.Scene{
     this.menuContainer.add(this.add.text(pw/2,16,'🔨 クラフト台',{fontSize:'18px',color:'#8844FF',fontFamily:'monospace'}).setOrigin(.5));
 
     const recipes=[
-      {out:'bomb', qty:1, ing:{stone:5,iron:2}, name:'💣 爆弾'},
-      {out:'rope',  qty:3, ing:{stone:3},        name:'🪢 ロープx3'},
-      {out:'heal',  qty:1, ing:{copper:2},       name:'💊 回復薬'},
-      {out:'ladder',qty:2, ing:{stone:4,wood:2}, name:'🪜 はしごx2'},
-      {out:'battery',qty:1,ing:{copper:3,iron:1},name:'🔋 電池'},
-      {out:'oxygen',qty:1, ing:{iron:3,crystal:1},name:'🫙 酸素ボンベ'},
-      {out:'beacon',qty:1, ing:{gold:1,iron:2},  name:'📡 帰還ビーコン'},
+      {out:'bomb',   qty:1, ing:{stone:5,iron:2},       name:'💣 爆弾',     desc:'範囲爆破'},
+      {out:'rope',   qty:3, ing:{stone:3},               name:'🪢 ロープx3', desc:'登り用'},
+      {out:'heal',   qty:1, ing:{copper:2},              name:'💊 回復薬',   desc:'HP+50回復'},
+      {out:'ladder', qty:2, ing:{stone:4,wood:2},        name:'🪜 はしごx2', desc:'壁登り'},
+      {out:'battery',qty:1, ing:{copper:3,iron:1},       name:'🔋 電池',     desc:'ライト補充'},
+      {out:'oxygen', qty:1, ing:{iron:3,crystal:1},      name:'🫙 酸素ボンベ',desc:'酸素補充'},
+      {out:'beacon', qty:1, ing:{gold:1,iron:2},         name:'📡 帰還ビーコン',desc:'即座に地上へ'},
+      // ⑦ 謎の機械完成レシピ (機械部品5個 + 金1 + 古代品3)
+      {out:'machine',qty:1, ing:{machine:3,gold:1,ancient:2}, name:'🤖 謎の機械[完成]',desc:'地下の謎を解く',special:true},
     ];
 
     let y=48;
@@ -2529,7 +2608,8 @@ class UIScene extends Phaser.Scene{
       rowBg.fillStyle(canCraft?0x221133:0x1a1a1a,.8);
       rowBg.fillRoundedRect(8,y-14,pw-16,40,6);
       this.menuContainer.add(rowBg);
-      this.menuContainer.add(this.add.text(16,y-6,r.name,{fontSize:'13px',color:canCraft?'#FFFFFF':'#666',fontFamily:'monospace'}));
+      const nameCol=r.special?(canCraft?'#00FFCC':'#668866'):(canCraft?'#FFFFFF':'#666');
+      this.menuContainer.add(this.add.text(16,y-6,r.name+(r.desc?' - '+r.desc:''),{fontSize:'12px',color:nameCol,fontFamily:'monospace'}));
       this.menuContainer.add(this.add.text(16,y+10,ingStr,{fontSize:'10px',color:'#AAAAAA',fontFamily:'monospace'}));
       if(canCraft){
         const btn=this.add.text(pw-14,y,'作る',
@@ -2538,7 +2618,16 @@ class UIScene extends Phaser.Scene{
         btn.on('pointerdown',()=>{
           for(const[k,v]of Object.entries(r.ing))player.removeItem(k,v);
           player.addItem(r.out,r.qty);
-          this.scene.get('World').showMsg(`🔨 ${r.name} 作成！`,0x8844FF);
+          const world=this.scene.get('World');
+          world.showMsg(`🔨 ${r.name} 作成！`,r.special?0x00FFCC:0x8844FF);
+          // 謎の機械完成トリガー
+          if(r.special&&!GS.machineCompleted){
+            GS.mechParts=5; GS.machineCompleted=true;
+            world.cameras.main.flash(1500,0,200,255,false);
+            world.showMsg('🤖 謎の機械が完成！「これは古代の自動採掘機だ！」+3000G',0x00FFCC);
+            GS.gold+=3000; GS.totalEarned+=3000;
+            world._updateTrophyDisplay?.();
+          }
           this.openCraftMenu(player);
         });
         this.menuContainer.add(btn);
